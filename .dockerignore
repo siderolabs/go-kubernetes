@@ -1,0 +1,9 @@
+# THIS FILE WAS AUTOMATICALLY GENERATED, PLEASE DO NOT EDIT.
+#
+# Generated on 2023-02-17T14:37:43Z by kres 2cbfdd9.
+
+*
+!kubernetes
+!go.mod
+!go.sum
+!.golangci.yml
