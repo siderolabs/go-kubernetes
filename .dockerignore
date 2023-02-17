@@ -1,0 +1,11 @@
+# THIS FILE WAS AUTOMATICALLY GENERATED, PLEASE DO NOT EDIT.
+#
+# Generated on 2023-02-20T09:15:28Z by kres 2cbfdd9-dirty.
+
+*
+!kubernetes
+!go.mod
+!go.sum
+!.golangci.yml
+!README.md
+!.markdownlint.json
