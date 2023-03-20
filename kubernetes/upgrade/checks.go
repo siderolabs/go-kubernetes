@@ -30,6 +30,7 @@ type Checks struct { //nolint:govet
 	state             state.State
 	k8sConfig         *rest.Config
 	controlPlaneNodes []string
+	workerNodes       []string
 	log               func(string, ...any)
 
 	upgradePath         string
@@ -60,6 +61,8 @@ type componentChecks struct {
 	kubeControllerManagerChecks componentCheck
 	// checks specific to kube-scheduler
 	kubeSchedulerChecks componentCheck
+	// checks specific to kubelet
+	kubeletChecks componentCheck
 }
 
 type apiServerCheck struct {
@@ -76,13 +79,15 @@ type componentCheck struct {
 }
 
 // NewChecks initializes and returns Checks.
-func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPlaneNodes []string, logFunc func(string, ...any)) (*Checks, error) {
+func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPlaneNodes, workerNodes []string, logFunc func(string, ...any)) (*Checks, error) {
 	return &Checks{
 		state:             state,
 		k8sConfig:         k8sConfig,
 		log:               logFunc,
 		upgradePath:       path.String(),
 		controlPlaneNodes: controlPlaneNodes,
+		workerNodes:       workerNodes,
+		// https://kubernetes.io/docs/reference/using-api/deprecation-guide/
 		upgradeVersionCheck: map[string]componentChecks{
 			"1.24->1.25": {
 				kubeAPIServerChecks: apiServerCheck{
@@ -114,8 +119,49 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 				},
 			},
 			"1.25->1.26": {
+				kubeAPIServerChecks: apiServerCheck{
+					componentCheck: componentCheck{
+						removedFlags: []string{
+							"master-service-namespace",
+						},
+					},
+				},
 				removedFeatureGates: []string{
 					"DynamicKubeletConfig",
+				},
+			},
+			// https://kubernetes.io/blog/2023/03/17/upcoming-changes-in-kubernetes-v1-27/
+			"1.26->1.27": {
+				kubeAPIServerChecks: apiServerCheck{
+					removedAPIResources: []string{
+						"csistoragecapacities.v1beta1.storage.k8s.io",
+					},
+				},
+				kubeControllerManagerChecks: componentCheck{
+					removedFlags: []string{
+						"enable-taint-manager",
+						"pod-eviction-timeout",
+					},
+				},
+				kubeletChecks: componentCheck{
+					removedFlags: []string{
+						"container-runtime",
+						"master-service-namespace",
+					},
+				},
+				removedFeatureGates: []string{
+					"ExpandCSIVolumes",
+					"ExpandInUsePersistentVolumes",
+					"ExpandPersistentVolumes",
+					"ControllerManagerLeaderMigration",
+					"CSIMigration",
+					"CSIInlineVolume",
+					"EphemeralContainers",
+					"LocalStorageCapacityIsolation",
+					"NetworkPolicyEndPort",
+					"StatefulSetMinReadySeconds",
+					"IdentifyPodOS",
+					"DaemonSetUpdateSurge",
 				},
 			},
 		},
@@ -123,6 +169,8 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 }
 
 // Run executes the checks.
+//
+//nolint:gocognit
 func (checks *Checks) Run(ctx context.Context) error {
 	var k8sComponentCheck ComponentRemovedItemsError
 
@@ -161,6 +209,21 @@ func (checks *Checks) Run(ctx context.Context) error {
 			}
 		}
 
+		for _, node := range append(append([]string(nil), checks.controlPlaneNodes...), checks.workerNodes...) {
+			ctx = client.WithNode(ctx, node)
+
+			kubeletSpec, err := safe.StateGet[*k8s.KubeletSpec](ctx, checks.state, k8s.NewKubeletSpec(k8s.NamespaceName, k8s.KubeletID).Metadata())
+			if err != nil {
+				if state.IsNotFoundError(err) {
+					continue
+				}
+
+				return err
+			}
+
+			k8sComponentCheck.PopulateRemovedCLIFlags(node, k8s.KubeletID, kubeletSpec.TypedSpec().Args, k8sComponentChecks.kubeletChecks.removedFlags)
+		}
+
 		checks.log("checking for removed Kubernetes API resource versions")
 
 		if err := k8sComponentCheck.PopulateRemovedAPIResources(ctx, checks.k8sConfig, k8sComponentChecks.kubeAPIServerChecks.removedAPIResources); err != nil {
@@ -172,10 +235,12 @@ func (checks *Checks) Run(ctx context.Context) error {
 }
 
 // PopulateRemovedCLIFlags populates the removed flags.
-func (e *ComponentRemovedItemsError) PopulateRemovedCLIFlags(node, component string, apiServerCLIFlags []string, removedFlags []string) {
+func (e *ComponentRemovedItemsError) PopulateRemovedCLIFlags(node, component string, cliFlags []string, removedFlags []string) {
 	for _, removedFlag := range removedFlags {
-		if slices.Contains(apiServerCLIFlags, func(s string) bool {
-			return strings.HasPrefix(s, "--"+removedFlag)
+		if slices.Contains(cliFlags, func(s string) bool {
+			cliFlagKey, _, _ := strings.Cut(s, "=")
+
+			return "--"+removedFlag == cliFlagKey
 		}) {
 			e.CLIFlags = append(e.CLIFlags, ComponentItem{
 				Node:      node,
@@ -187,8 +252,8 @@ func (e *ComponentRemovedItemsError) PopulateRemovedCLIFlags(node, component str
 }
 
 // PopulateRemovedFeatureGates populates the removed feature gates.
-func (e *ComponentRemovedItemsError) PopulateRemovedFeatureGates(node, component string, apiServerCLIFlags []string, removedFeatureGates []string) {
-	featureGateFlags := slices.Filter(apiServerCLIFlags, func(s string) bool {
+func (e *ComponentRemovedItemsError) PopulateRemovedFeatureGates(node, component string, cliFlags []string, removedFeatureGates []string) {
+	featureGateFlags := slices.Filter(cliFlags, func(s string) bool {
 		return strings.HasPrefix(s, "--feature-gates")
 	})
 
@@ -210,8 +275,8 @@ func (e *ComponentRemovedItemsError) PopulateRemovedFeatureGates(node, component
 }
 
 // PopulateRemovedAdmissionPlugins populates the removed admission plugins.
-func (e *ComponentRemovedItemsError) PopulateRemovedAdmissionPlugins(node, component string, apiServerCLIFlags []string, removedAdmissionPlugins []string) {
-	admissionFlags := slices.Filter(apiServerCLIFlags, func(s string) bool {
+func (e *ComponentRemovedItemsError) PopulateRemovedAdmissionPlugins(node, component string, cliFlags []string, removedAdmissionPlugins []string) {
+	admissionFlags := slices.Filter(cliFlags, func(s string) bool {
 		return strings.HasPrefix(s, "--enable-admission-plugins")
 	})
 
