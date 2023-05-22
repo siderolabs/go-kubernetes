@@ -132,11 +132,6 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 			},
 			// https://kubernetes.io/blog/2023/03/17/upcoming-changes-in-kubernetes-v1-27/
 			"1.26->1.27": {
-				kubeAPIServerChecks: apiServerCheck{
-					removedAPIResources: []string{
-						"csistoragecapacities.v1beta1.storage.k8s.io",
-					},
-				},
 				kubeControllerManagerChecks: componentCheck{
 					removedFlags: []string{
 						"enable-taint-manager",
