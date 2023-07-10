@@ -46,11 +46,7 @@ func WaitForRollout(ctx context.Context, config *rest.Config, objects []Manifest
 		return err
 	}
 
-	if err = waitForDaemonSetsRollout(ctx, clientset, daemonsets, resultCh); err != nil {
-		return err
-	}
-
-	return nil
+	return waitForDaemonSetsRollout(ctx, clientset, daemonsets, resultCh)
 }
 
 func waitForDeploymentsRollout(ctx context.Context, clientset *kubernetes.Client, deployments []Manifest, resultCh chan<- RolloutProgress) error {
