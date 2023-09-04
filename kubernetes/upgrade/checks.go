@@ -159,6 +159,23 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 					"DaemonSetUpdateSurge",
 				},
 			},
+			// https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/CHANGELOG-1.28.md
+			"1.27->1.28": {
+				removedFeatureGates: []string{
+					"AdvancedAuditing",
+					"DelegateFSGroupToCSIDriver",
+					"DevicePlugins",
+					"DisableAcceleratorUsageMetrics",
+					"EndpointSliceTerminatingCondition",
+					"CSIStorageCapacity",
+					"CSIMigrationGCE",
+					"KubeletCredentialProviders",
+					"MixedProtocolLBService",
+					"ServiceInternalTrafficPolicy",
+					"ServiceIPStaticSubrange",
+					"WindowsHostProcessContainers",
+				},
+			},
 		},
 	}, nil
 }
