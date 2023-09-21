@@ -21,7 +21,7 @@ func GetBootstrapManifests(ctx context.Context, st state.State, filter func(Mani
 		return nil, err
 	}
 
-	it := safe.IteratorFromList(items)
+	it := items.Iterator()
 
 	objects := []Manifest{}
 

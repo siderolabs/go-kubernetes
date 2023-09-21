@@ -9,12 +9,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/cosi-project/runtime/pkg/safe"
 	"github.com/cosi-project/runtime/pkg/state"
-	"github.com/siderolabs/gen/slices"
+	"github.com/siderolabs/gen/xslices"
 	"github.com/siderolabs/talos/pkg/machinery/client"
 	"github.com/siderolabs/talos/pkg/machinery/resources/k8s"
 	v1 "k8s.io/api/core/v1"
@@ -249,7 +250,7 @@ func (checks *Checks) Run(ctx context.Context) error {
 // PopulateRemovedCLIFlags populates the removed flags.
 func (e *ComponentRemovedItemsError) PopulateRemovedCLIFlags(node, component string, cliFlags []string, removedFlags []string) {
 	for _, removedFlag := range removedFlags {
-		if slices.Contains(cliFlags, func(s string) bool {
+		if slices.ContainsFunc(cliFlags, func(s string) bool {
 			cliFlagKey, _, _ := strings.Cut(s, "=")
 
 			return "--"+removedFlag == cliFlagKey
@@ -265,7 +266,7 @@ func (e *ComponentRemovedItemsError) PopulateRemovedCLIFlags(node, component str
 
 // PopulateRemovedFeatureGates populates the removed feature gates.
 func (e *ComponentRemovedItemsError) PopulateRemovedFeatureGates(node, component string, cliFlags []string, removedFeatureGates []string) {
-	featureGateFlags := slices.Filter(cliFlags, func(s string) bool {
+	featureGateFlags := xslices.Filter(cliFlags, func(s string) bool {
 		return strings.HasPrefix(s, "--feature-gates")
 	})
 
@@ -273,7 +274,7 @@ func (e *ComponentRemovedItemsError) PopulateRemovedFeatureGates(node, component
 		featureGates := strings.Split(strings.TrimPrefix(featureGateFlags[0], "--feature-gates="), ",")
 
 		for _, removedFeatureGate := range removedFeatureGates {
-			if slices.Contains(featureGates, func(s string) bool {
+			if slices.ContainsFunc(featureGates, func(s string) bool {
 				return removedFeatureGate == strings.Split(s, "=")[0]
 			}) {
 				e.FeatureGates = append(e.FeatureGates, ComponentItem{
@@ -288,7 +289,7 @@ func (e *ComponentRemovedItemsError) PopulateRemovedFeatureGates(node, component
 
 // PopulateRemovedAdmissionPlugins populates the removed admission plugins.
 func (e *ComponentRemovedItemsError) PopulateRemovedAdmissionPlugins(node, component string, cliFlags []string, removedAdmissionPlugins []string) {
-	admissionFlags := slices.Filter(cliFlags, func(s string) bool {
+	admissionFlags := xslices.Filter(cliFlags, func(s string) bool {
 		return strings.HasPrefix(s, "--enable-admission-plugins")
 	})
 
@@ -296,7 +297,7 @@ func (e *ComponentRemovedItemsError) PopulateRemovedAdmissionPlugins(node, compo
 		admissionPlugins := strings.Split(strings.TrimPrefix(admissionFlags[0], "--enable-admission-plugins="), ",")
 
 		for _, removedAdmissionPlugin := range removedAdmissionPlugins {
-			if slices.Contains(admissionPlugins, func(s string) bool {
+			if slices.ContainsFunc(admissionPlugins, func(s string) bool {
 				return removedAdmissionPlugin == s
 			}) {
 				e.AdmissionFlags = append(e.AdmissionFlags, ComponentItem{
