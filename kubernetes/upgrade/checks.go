@@ -177,6 +177,8 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 					"WindowsHostProcessContainers",
 				},
 			},
+			// https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/CHANGELOG-1.29.md
+			"1.28->1.29": {},
 		},
 	}, nil
 }
