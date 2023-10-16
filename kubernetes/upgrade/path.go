@@ -8,13 +8,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hashicorp/go-version"
+	"github.com/blang/semver/v4"
 )
 
 // Path encodes the upgrade path.
 type Path struct {
-	from, to               *version.Version
 	fromVersion, toVersion string
+	from, to               semver.Version
 }
 
 // NewPath creates a new upgrade path.
@@ -22,12 +22,12 @@ func NewPath(fromVersion, toVersion string) (*Path, error) {
 	fromVersion = strings.TrimLeft(fromVersion, "v")
 	toVersion = strings.TrimLeft(toVersion, "v")
 
-	from, err := version.NewVersion(fromVersion)
+	from, err := semver.ParseTolerant(fromVersion)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing from version: %w", err)
 	}
 
-	to, err := version.NewVersion(toVersion)
+	to, err := semver.ParseTolerant(toVersion)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing to version: %w", err)
 	}
@@ -51,7 +51,7 @@ func (p *Path) ToVersion() string {
 }
 
 func (p *Path) String() string {
-	return fmt.Sprintf("%d.%d->%d.%d", p.from.Segments()[0], p.from.Segments()[1], p.to.Segments()[0], p.to.Segments()[1])
+	return fmt.Sprintf("%d.%d->%d.%d", p.from.Major, p.from.Minor, p.to.Major, p.to.Minor)
 }
 
 // IsSupported returns true if the upgrade path is supported.

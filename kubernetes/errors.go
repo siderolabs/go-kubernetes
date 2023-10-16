@@ -25,6 +25,10 @@ func IsRetryableError(err error) bool {
 		}
 	}
 
+	if isPlatformRetryableError(err) {
+		return true
+	}
+
 	var netErr net.Error
 
 	if errors.As(err, &netErr) {
