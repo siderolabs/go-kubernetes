@@ -1,6 +1,6 @@
 # THIS FILE WAS AUTOMATICALLY GENERATED, PLEASE DO NOT EDIT.
 #
-# Generated on 2023-10-16T17:08:53Z by kres latest.
+# Generated on 2023-11-03T07:25:21Z by kres latest.
 
 # common variables
 
@@ -19,10 +19,10 @@ GRPC_GO_VERSION ?= 1.3.0
 GRPC_GATEWAY_VERSION ?= 2.18.0
 VTPROTOBUF_VERSION ?= 0.5.0
 DEEPCOPY_VERSION ?= v0.5.5
-GOLANGCILINT_VERSION ?= v1.54.2
+GOLANGCILINT_VERSION ?= v1.55.1
 GOFUMPT_VERSION ?= v0.5.0
-GO_VERSION ?= 1.21.1
-GOIMPORTS_VERSION ?= v0.13.0
+GO_VERSION ?= 1.21.3
+GOIMPORTS_VERSION ?= v0.14.0
 GO_BUILDFLAGS ?=
 GO_LDFLAGS ?=
 CGO_ENABLED ?= 0
@@ -170,7 +170,7 @@ lint: lint-golangci-lint lint-gofumpt lint-govulncheck lint-goimports lint-markd
 .PHONY: rekres
 rekres:
 	@docker pull $(KRES_IMAGE)
-	@docker run --rm --net=host -v $(PWD):/src -w /src -e GITHUB_TOKEN $(KRES_IMAGE)
+	@docker run --rm --net=host --user $(shell id -u):$(shell id -g) -v $(PWD):/src -w /src -e GITHUB_TOKEN $(KRES_IMAGE)
 
 .PHONY: help
 help:  ## This help menu.

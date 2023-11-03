@@ -178,7 +178,13 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 				},
 			},
 			// https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/CHANGELOG-1.29.md
-			"1.28->1.29": {},
+			"1.28->1.29": {
+				kubeAPIServerChecks: apiServerCheck{
+					removedAPIResources: []string{
+						"clustercidrs.v1alpha1.networking.k8s.io", // https://github.com/kubernetes/kubernetes/pull/121229
+					},
+				},
+			},
 		},
 	}, nil
 }
