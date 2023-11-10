@@ -17,3 +17,15 @@ func (v Version) FeatureFlagSeccompDefaultEnabledByDefault() bool {
 	// see https://github.com/kubernetes/kubernetes/pull/110805
 	return semver.Version(v).GTE(semver.Version{Major: 1, Minor: 25})
 }
+
+// KubeSchedulerConfigurationAPIVersion returns the API version of the kube-scheduler configuration.
+func (v Version) KubeSchedulerConfigurationAPIVersion() string {
+	// https://v1-25.docs.kubernetes.io/docs/reference/scheduling/config/
+	// v1.25 and above supports v1
+	if semver.Version(v).GTE(semver.Version{Major: 1, Minor: 25}) {
+		return "kubescheduler.config.k8s.io/v1"
+	}
+
+	// see https://v1-24.docs.kubernetes.io/docs/reference/scheduling/config/
+	return "kubescheduler.config.k8s.io/v1beta3"
+}

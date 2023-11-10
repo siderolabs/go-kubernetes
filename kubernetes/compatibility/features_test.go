@@ -13,11 +13,12 @@ import (
 )
 
 func TestFeatures(t *testing.T) {
-	for _, test := range []struct {
+	for _, test := range []struct { //nolint:govet
 		versions []compatibility.Version
 
 		expectedSupportsKubeletConfigContainerRuntimeEndpoint bool
 		expectedFeatureFlagSeccompDefaultEnabledByDefault     bool
+		expectedKubeSchedulerConfigurationAPIVersion          string
 	}{
 		{
 			versions: []compatibility.Version{
@@ -26,6 +27,7 @@ func TestFeatures(t *testing.T) {
 
 			expectedSupportsKubeletConfigContainerRuntimeEndpoint: false,
 			expectedFeatureFlagSeccompDefaultEnabledByDefault:     false,
+			expectedKubeSchedulerConfigurationAPIVersion:          "kubescheduler.config.k8s.io/v1beta3",
 		},
 		{
 			versions: []compatibility.Version{
@@ -34,6 +36,7 @@ func TestFeatures(t *testing.T) {
 			},
 			expectedSupportsKubeletConfigContainerRuntimeEndpoint: false,
 			expectedFeatureFlagSeccompDefaultEnabledByDefault:     true,
+			expectedKubeSchedulerConfigurationAPIVersion:          "kubescheduler.config.k8s.io/v1",
 		},
 		{
 			versions: []compatibility.Version{
@@ -44,6 +47,7 @@ func TestFeatures(t *testing.T) {
 			},
 			expectedSupportsKubeletConfigContainerRuntimeEndpoint: true,
 			expectedFeatureFlagSeccompDefaultEnabledByDefault:     true,
+			expectedKubeSchedulerConfigurationAPIVersion:          "kubescheduler.config.k8s.io/v1",
 		},
 	} {
 		for _, version := range test.versions {
