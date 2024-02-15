@@ -185,6 +185,24 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 					},
 				},
 			},
+			// https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/CHANGELOG-1.30.md
+			"1.29->1.30": {
+				removedFeatureGates: []string{
+					"ExpandedDNSConfig",
+					"ExperimentalHostUserNamespaceDefaultingGate",
+					"IPTablesOwnershipCleanup",
+					"KubeletPodResources",
+					"KubeletPodResourcesGetAllocatable",
+					"MinimizeIPTablesRestore",
+					"ProxyTerminatingEndpoints",
+					"RemoveSelfLink",
+				},
+				kubeAPIServerChecks: apiServerCheck{
+					removedAdmissionPlugins: []string{
+						"SecurityContextDeny", // https://github.com/kubernetes/kubernetes/pull/122612
+					},
+				},
+			},
 		},
 	}, nil
 }

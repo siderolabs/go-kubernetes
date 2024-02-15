@@ -67,16 +67,14 @@ func Sync(ctx context.Context, objects []Manifest, config *rest.Config, dryRun b
 			skipped bool
 		)
 
-		err = retry.Constant(3*time.Minute, retry.WithUnits(10*time.Second), retry.WithErrorLogging(true)).RetryWithContext(ctx, func(ctx context.Context) error {
+		if err = retry.Constant(3*time.Minute, retry.WithUnits(10*time.Second), retry.WithErrorLogging(true)).RetryWithContext(ctx, func(ctx context.Context) error {
 			resp, diff, skipped, err = updateManifest(ctx, mapper, k8sClient, obj, dryRun)
 			if kubernetes.IsRetryableError(err) || apierrors.IsConflict(err) {
 				return retry.ExpectedError(err)
 			}
 
 			return err
-		})
-
-		if err != nil {
+		}); err != nil {
 			return err
 		}
 

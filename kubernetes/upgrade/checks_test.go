@@ -7,7 +7,6 @@ package upgrade_test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
@@ -34,7 +33,7 @@ func TestK8sComponentRemovedItemsNoError(t *testing.T) {
 				"containers": []any{
 					map[string]any{
 						"command": []string{
-							fmt.Sprintf("/usr/local/bin/%s", id),
+							"/usr/local/bin/" + id,
 						},
 					},
 				},
