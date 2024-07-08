@@ -51,8 +51,6 @@ func WaitForRollout(ctx context.Context, config *rest.Config, objects []Manifest
 
 func waitForDeploymentsRollout(ctx context.Context, clientset *kubernetes.Client, deployments []Manifest, resultCh chan<- RolloutProgress) error {
 	for _, obj := range deployments {
-		obj := obj
-
 		if !channel.SendWithContext(ctx, resultCh,
 			RolloutProgress{
 				Object: obj,
@@ -91,8 +89,6 @@ func waitForDeploymentsRollout(ctx context.Context, clientset *kubernetes.Client
 
 func waitForDaemonSetsRollout(ctx context.Context, clientset *kubernetes.Client, daemonSets []Manifest, resultCh chan<- RolloutProgress) error {
 	for _, obj := range daemonSets {
-		obj := obj
-
 		if !channel.SendWithContext(ctx, resultCh,
 			RolloutProgress{
 				Object: obj,

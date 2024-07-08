@@ -33,8 +33,7 @@ func IsRetryableError(err error) bool {
 
 	if errors.As(err, &netErr) {
 		// https://groups.google.com/g/golang-nuts/c/-JcZzOkyqYI/m/xwaZzjCgAwAJ
-		//nolint:staticcheck
-		if netErr.Temporary() || netErr.Timeout() {
+		if netErr.Temporary() || netErr.Timeout() { //nolint:staticcheck
 			return true
 		}
 	}

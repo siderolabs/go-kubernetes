@@ -203,6 +203,31 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 					},
 				},
 			},
+			// https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/CHANGELOG-1.31.md
+			"1.30->1.31": {
+				removedFeatureGates: []string{
+					"CSINodeExpandSecret",
+					"ConsistentHTTPGetHandlers",
+					"DefaultHostNetworkHostPortsInPodTemplates",
+					"ServiceNodePortStaticSubrange",
+					"SkipReadOnlyValidationGCE",
+				},
+				kubeletChecks: componentCheck{
+					removedFlags: []string{
+						"keep-terminated-pod-volumes", // https://github.com/kubernetes/kubernetes/pull/122082
+						"iptables-masquerade-bit",
+						"iptables-drop-bit", // https://github.com/kubernetes/kubernetes/pull/122363
+					},
+				},
+				kubeControllerManagerChecks: componentCheck{
+					removedFlags: []string{
+						"volume-host-cidr-denylist",
+						"volume-host-allow-local-loopback", // https://github.com/kubernetes/kubernetes/pull/124017
+						"horizontal-pod-autoscaler-upscale-delay",
+						"horizontal-pod-autoscaler-downscale-delay", // https://github.com/kubernetes/kubernetes/pull/124948
+					},
+				},
+			},
 		},
 	}, nil
 }
@@ -217,10 +242,8 @@ func (checks *Checks) Run(ctx context.Context) error {
 		checks.log("checking for removed Kubernetes component flags")
 
 		for _, node := range checks.controlPlaneNodes {
-			ctx = client.WithNode(ctx, node)
-
 			for _, id := range []string{k8s.APIServerID, k8s.ControllerManagerID, k8s.SchedulerID} {
-				staticPod, err := safe.StateGet[*k8s.StaticPod](ctx, checks.state, k8s.NewStaticPod(k8s.NamespaceName, id).Metadata())
+				staticPod, err := safe.StateGet[*k8s.StaticPod](client.WithNode(ctx, node), checks.state, k8s.NewStaticPod(k8s.NamespaceName, id).Metadata())
 				if err != nil {
 					if state.IsNotFoundError(err) {
 						continue
@@ -249,9 +272,7 @@ func (checks *Checks) Run(ctx context.Context) error {
 		}
 
 		for _, node := range append(append([]string(nil), checks.controlPlaneNodes...), checks.workerNodes...) {
-			ctx = client.WithNode(ctx, node)
-
-			kubeletSpec, err := safe.StateGet[*k8s.KubeletSpec](ctx, checks.state, k8s.NewKubeletSpec(k8s.NamespaceName, k8s.KubeletID).Metadata())
+			kubeletSpec, err := safe.StateGet[*k8s.KubeletSpec](client.WithNode(ctx, node), checks.state, k8s.NewKubeletSpec(k8s.NamespaceName, k8s.KubeletID).Metadata())
 			if err != nil {
 				if state.IsNotFoundError(err) {
 					continue
@@ -401,34 +422,34 @@ func (e ComponentRemovedItemsError) Error() string {
 	w := tabwriter.NewWriter(&buf, 0, 0, 3, ' ', 0)
 
 	if len(e.AdmissionFlags) > 0 {
-		fmt.Fprintf(w, "\nNODE\tCOMPONENT\tREMOVED ADMISSION PLUGIN\n")
+		fmt.Fprintf(w, "\nNODE\tCOMPONENT\tREMOVED ADMISSION PLUGIN\n") //nolint:errcheck
 
 		for _, item := range e.AdmissionFlags {
-			fmt.Fprintf(w, "%s\t%s\t%s\n", item.Node, item.Component, item.Value)
+			fmt.Fprintf(w, "%s\t%s\t%s\n", item.Node, item.Component, item.Value) //nolint:errcheck
 		}
 	}
 
 	if len(e.FeatureGates) > 0 {
-		fmt.Fprintf(w, "\nNODE\tCOMPONENT\tREMOVED FEATURE GATE\n")
+		fmt.Fprintf(w, "\nNODE\tCOMPONENT\tREMOVED FEATURE GATE\n") //nolint:errcheck
 
 		for _, item := range e.FeatureGates {
-			fmt.Fprintf(w, "%s\t%s\t%s\n", item.Node, item.Component, item.Value)
+			fmt.Fprintf(w, "%s\t%s\t%s\n", item.Node, item.Component, item.Value) //nolint:errcheck
 		}
 	}
 
 	if len(e.CLIFlags) > 0 {
-		fmt.Fprintf(w, "\nNODE\tCOMPONENT\tREMOVED FLAG\n")
+		fmt.Fprintf(w, "\nNODE\tCOMPONENT\tREMOVED FLAG\n") //nolint:errcheck
 
 		for _, item := range e.CLIFlags {
-			fmt.Fprintf(w, "%s\t%s\t%s\n", item.Node, item.Component, item.Value)
+			fmt.Fprintf(w, "%s\t%s\t%s\n", item.Node, item.Component, item.Value) //nolint:errcheck
 		}
 	}
 
 	if len(e.APIResources) > 0 {
-		fmt.Fprintf(w, "\nREMOVED RESOURCE\tCOUNT\t\n")
+		fmt.Fprintf(w, "\nREMOVED RESOURCE\tCOUNT\t\n") //nolint:errcheck
 
 		for apiVersion, count := range e.APIResources {
-			fmt.Fprintf(w, "%s\t%d\t\n", apiVersion, count)
+			fmt.Fprintf(w, "%s\t%d\t\n", apiVersion, count) //nolint:errcheck
 		}
 	}
 
