@@ -206,6 +206,7 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 			// https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/CHANGELOG-1.31.md
 			"1.30->1.31": {
 				removedFeatureGates: []string{
+					"APIPriorityAndFairness", // https://github.com/kubernetes/kubernetes/pull/125846
 					"CSINodeExpandSecret",
 					"ConsistentHTTPGetHandlers",
 					"DefaultHostNetworkHostPortsInPodTemplates",
