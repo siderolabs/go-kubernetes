@@ -19,6 +19,9 @@ func TestFeatures(t *testing.T) {
 		expectedSupportsKubeletConfigContainerRuntimeEndpoint bool
 		expectedFeatureFlagSeccompDefaultEnabledByDefault     bool
 		expectedKubeSchedulerConfigurationAPIVersion          string
+		expectedKubeSchedulerLivenessEndpoint                 string
+		expectedKubeSchedulerReadinessEndpoint                string
+		expectedKubeSchedulerStartupEndpoint                  string
 	}{
 		{
 			versions: []compatibility.Version{
@@ -28,6 +31,9 @@ func TestFeatures(t *testing.T) {
 			expectedSupportsKubeletConfigContainerRuntimeEndpoint: false,
 			expectedFeatureFlagSeccompDefaultEnabledByDefault:     false,
 			expectedKubeSchedulerConfigurationAPIVersion:          "kubescheduler.config.k8s.io/v1beta3",
+			expectedKubeSchedulerLivenessEndpoint:                 "/healthz",
+			expectedKubeSchedulerReadinessEndpoint:                "/healthz",
+			expectedKubeSchedulerStartupEndpoint:                  "/healthz",
 		},
 		{
 			versions: []compatibility.Version{
@@ -37,23 +43,44 @@ func TestFeatures(t *testing.T) {
 			expectedSupportsKubeletConfigContainerRuntimeEndpoint: false,
 			expectedFeatureFlagSeccompDefaultEnabledByDefault:     true,
 			expectedKubeSchedulerConfigurationAPIVersion:          "kubescheduler.config.k8s.io/v1",
+			expectedKubeSchedulerLivenessEndpoint:                 "/healthz",
+			expectedKubeSchedulerReadinessEndpoint:                "/healthz",
+			expectedKubeSchedulerStartupEndpoint:                  "/healthz",
 		},
 		{
 			versions: []compatibility.Version{
 				{Major: 1, Minor: 27},
 				{Major: 1, Minor: 28},
 				{Major: 1, Minor: 29},
+				{Major: 1, Minor: 30},
+			},
+			expectedSupportsKubeletConfigContainerRuntimeEndpoint: true,
+			expectedFeatureFlagSeccompDefaultEnabledByDefault:     true,
+			expectedKubeSchedulerConfigurationAPIVersion:          "kubescheduler.config.k8s.io/v1",
+			expectedKubeSchedulerLivenessEndpoint:                 "/healthz",
+			expectedKubeSchedulerReadinessEndpoint:                "/healthz",
+			expectedKubeSchedulerStartupEndpoint:                  "/healthz",
+		},
+		{
+			versions: []compatibility.Version{
+				{Major: 1, Minor: 31},
 				{Major: 1, Minor: 99},
 			},
 			expectedSupportsKubeletConfigContainerRuntimeEndpoint: true,
 			expectedFeatureFlagSeccompDefaultEnabledByDefault:     true,
 			expectedKubeSchedulerConfigurationAPIVersion:          "kubescheduler.config.k8s.io/v1",
+			expectedKubeSchedulerLivenessEndpoint:                 "/livez",
+			expectedKubeSchedulerReadinessEndpoint:                "/readyz",
+			expectedKubeSchedulerStartupEndpoint:                  "/livez",
 		},
 	} {
 		for _, version := range test.versions {
 			t.Run(version.String(), func(t *testing.T) {
 				assert.Equal(t, test.expectedSupportsKubeletConfigContainerRuntimeEndpoint, version.SupportsKubeletConfigContainerRuntimeEndpoint())
 				assert.Equal(t, test.expectedFeatureFlagSeccompDefaultEnabledByDefault, version.FeatureFlagSeccompDefaultEnabledByDefault())
+				assert.Equal(t, test.expectedKubeSchedulerConfigurationAPIVersion, version.KubeSchedulerConfigurationAPIVersion())
+				assert.Equal(t, test.expectedKubeSchedulerLivenessEndpoint, version.KubeSchedulerHealthLivenessEndpoint())
+				assert.Equal(t, test.expectedKubeSchedulerReadinessEndpoint, version.KubeSchedulerHealthReadinessEndpoint())
 			})
 		}
 	}

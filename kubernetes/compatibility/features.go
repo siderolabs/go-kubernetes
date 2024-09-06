@@ -6,6 +6,10 @@ package compatibility
 
 import "github.com/blang/semver/v4"
 
+const (
+	kubeSchedulerPre131HealthzEndpoint = "/healthz"
+)
+
 // SupportsKubeletConfigContainerRuntimeEndpoint returns true if kubelet supports ContainerRuntimEndpoint in kubelet config.
 func (v Version) SupportsKubeletConfigContainerRuntimeEndpoint() bool {
 	// see https://github.com/kubernetes/kubernetes/pull/112136
@@ -28,4 +32,37 @@ func (v Version) KubeSchedulerConfigurationAPIVersion() string {
 
 	// see https://v1-24.docs.kubernetes.io/docs/reference/scheduling/config/
 	return "kubescheduler.config.k8s.io/v1beta3"
+}
+
+// KubeSchedulerHealthLivenessEndpoint returns the liveness endpoint for the kube-scheduler health check.
+func (v Version) KubeSchedulerHealthLivenessEndpoint() string {
+	// https://github.com/kubernetes/kubernetes/pull/118148
+	// v1.31 and above supports /livez
+	if semver.Version(v).GTE(semver.Version{Major: 1, Minor: 31}) {
+		return "/livez"
+	}
+
+	return kubeSchedulerPre131HealthzEndpoint
+}
+
+// KubeSchedulerHealthReadinessEndpoint returns the readiness endpoint for the kube-scheduler health check.
+func (v Version) KubeSchedulerHealthReadinessEndpoint() string {
+	// https://github.com/kubernetes/kubernetes/pull/118148
+	// v1.31 and above supports /readyz
+	if semver.Version(v).GTE(semver.Version{Major: 1, Minor: 31}) {
+		return "/readyz"
+	}
+
+	return kubeSchedulerPre131HealthzEndpoint
+}
+
+// KubeSchedulerHealthStartupEndpoint returns the startup endpoint for the kube-scheduler health check.
+func (v Version) KubeSchedulerHealthStartupEndpoint() string {
+	// https://github.com/kubernetes/kubernetes/pull/118148
+	// v1.31 and above supports /livez
+	if semver.Version(v).GTE(semver.Version{Major: 1, Minor: 31}) {
+		return "/livez"
+	}
+
+	return kubeSchedulerPre131HealthzEndpoint
 }
