@@ -229,6 +229,23 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 					},
 				},
 			},
+			// https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/CHANGELOG-1.32.md
+			"1.31->1.32": {
+				removedFeatureGates: []string{
+					"AllowServiceLBStatusOnNonLB",      // https://github.com/kubernetes/kubernetes/pull/126786
+					"CloudDualStackNodeIPs",            // https://github.com/kubernetes/kubernetes/pull/126840
+					"KMSv2",                            // https://github.com/kubernetes/kubernetes/pull/126698
+					"KMSv2KDF",                         // https://github.com/kubernetes/kubernetes/pull/126698
+					"LegacyServiceAccountTokenCleanUp", // https://github.com/kubernetes/kubernetes/pull/126839
+					"MinDomainsInPodTopologySpread",    // https://github.com/kubernetes/kubernetes/pull/126863
+					"NewVolumeManagerReconstruction",   // https://github.com/kubernetes/kubernetes/pull/126775
+					"NodeOutOfServiceVolumeDetach",     // https://github.com/kubernetes/kubernetes/pull/127019
+					"ServerSideApply",                  // https://github.com/kubernetes/kubernetes/pull/127058
+					"ServerSideFieldValidation",        // https://github.com/kubernetes/kubernetes/pull/127058
+					"StableLoadBalancerNodeSet",        // https://github.com/kubernetes/kubernetes/pull/126841
+					"ValiatingAdmissionPolicy",         // https://github.com/kubernetes/kubernetes/pull/126645
+				},
+			},
 		},
 	}, nil
 }
