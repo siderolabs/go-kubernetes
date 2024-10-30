@@ -234,6 +234,7 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 				removedFeatureGates: []string{
 					"AllowServiceLBStatusOnNonLB",      // https://github.com/kubernetes/kubernetes/pull/126786
 					"CloudDualStackNodeIPs",            // https://github.com/kubernetes/kubernetes/pull/126840
+					"DRAControlPlaneController",        // https://github.com/kubernetes/kubernetes/pull/128003
 					"KMSv2",                            // https://github.com/kubernetes/kubernetes/pull/126698
 					"KMSv2KDF",                         // https://github.com/kubernetes/kubernetes/pull/126698
 					"LegacyServiceAccountTokenCleanUp", // https://github.com/kubernetes/kubernetes/pull/126839
@@ -243,7 +244,12 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 					"ServerSideApply",                  // https://github.com/kubernetes/kubernetes/pull/127058
 					"ServerSideFieldValidation",        // https://github.com/kubernetes/kubernetes/pull/127058
 					"StableLoadBalancerNodeSet",        // https://github.com/kubernetes/kubernetes/pull/126841
-					"ValiatingAdmissionPolicy",         // https://github.com/kubernetes/kubernetes/pull/126645
+					"ValidatingAdmissionPolicy",        // https://github.com/kubernetes/kubernetes/pull/126645
+				},
+				kubeAPIServerChecks: apiServerCheck{
+					removedAPIResources: []string{
+						"podschedulingcontexts.v1alpha3.resource.k8s.io", // https://github.com/kubernetes/kubernetes/pull/128003
+					},
 				},
 			},
 		},

@@ -21,12 +21,10 @@ func GetBootstrapManifests(ctx context.Context, st state.State, filter func(Mani
 		return nil, err
 	}
 
-	it := items.Iterator()
-
 	objects := []Manifest{}
 
-	for it.Next() {
-		for _, o := range it.Value().TypedSpec().Items {
+	for manifest := range items.All() {
+		for _, o := range manifest.TypedSpec().Items {
 			obj := &unstructured.Unstructured{Object: o.Object}
 
 			if filter != nil && !filter(obj) {

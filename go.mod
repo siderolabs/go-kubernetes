@@ -4,17 +4,17 @@ go 1.23.2
 
 require (
 	github.com/blang/semver/v4 v4.0.0
-	github.com/cosi-project/runtime v0.5.5
+	github.com/cosi-project/runtime v0.6.4
 	github.com/google/go-containerregistry v0.20.2
 	github.com/hexops/gotextdiff v1.0.3
-	github.com/siderolabs/gen v0.5.0
+	github.com/siderolabs/gen v0.6.1
 	github.com/siderolabs/go-retry v0.3.3
-	github.com/siderolabs/talos/pkg/machinery v1.8.1
+	github.com/siderolabs/talos/pkg/machinery v1.8.2
 	github.com/stretchr/testify v1.9.0
 	golang.org/x/sys v0.26.0
-	k8s.io/api v0.31.1
-	k8s.io/apimachinery v0.31.1
-	k8s.io/client-go v0.31.1
+	k8s.io/api v0.31.2
+	k8s.io/apimachinery v0.31.2
+	k8s.io/client-go v0.31.2
 	sigs.k8s.io/yaml v1.4.0
 )
 
@@ -55,7 +55,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/siderolabs/crypto v0.4.4 // indirect
+	github.com/siderolabs/crypto v0.5.0 // indirect
 	github.com/siderolabs/go-api-signature v0.3.6 // indirect
 	github.com/siderolabs/go-pointer v1.0.0 // indirect
 	github.com/siderolabs/protoenc v0.2.1 // indirect
