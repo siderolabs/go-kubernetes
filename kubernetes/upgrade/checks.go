@@ -235,6 +235,7 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 					"AllowServiceLBStatusOnNonLB",         // https://github.com/kubernetes/kubernetes/pull/126786
 					"CloudDualStackNodeIPs",               // https://github.com/kubernetes/kubernetes/pull/126840
 					"DRAControlPlaneController",           // https://github.com/kubernetes/kubernetes/pull/128003
+					"HPAContainerMetrics",                 // https://github.com/kubernetes/kubernetes/pull/126862
 					"KMSv2",                               // https://github.com/kubernetes/kubernetes/pull/126698
 					"KMSv2KDF",                            // https://github.com/kubernetes/kubernetes/pull/126698
 					"LegacyServiceAccountTokenCleanUp",    // https://github.com/kubernetes/kubernetes/pull/126839
