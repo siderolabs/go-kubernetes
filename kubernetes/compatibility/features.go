@@ -66,3 +66,18 @@ func (v Version) KubeSchedulerHealthStartupEndpoint() string {
 
 	return kubeSchedulerPre131HealthzEndpoint
 }
+
+// KubeAPIServerSupportsAuthorizationConfigFile returns true if kube-apiserver supports authorization config file.
+func (v Version) KubeAPIServerSupportsAuthorizationConfigFile() bool {
+	// https://v1-29.docs.kubernetes.io/docs/reference/access-authn-authz/authorization/#configuring-the-api-server-using-an-authorization-config-file
+	// v1.29 and above supports authorization config file
+	return semver.Version(v).GTE(semver.Version{Major: 1, Minor: 29})
+}
+
+// FeatureFlagStructuredAuthorizationConfigurationEnabledByDefault returns true if structured authorization configuration is enabled by default.
+func (v Version) FeatureFlagStructuredAuthorizationConfigurationEnabledByDefault() bool {
+	// https://v1-29.docs.kubernetes.io/docs/reference/access-authn-authz/authorization/#configuring-the-api-server-using-an-authorization-config-file
+	// https://v1-30.docs.kubernetes.io/docs/reference/access-authn-authz/authorization/#using-configuration-file-for-authorization
+	// v1.30 and above enables structured authorization configuration by default
+	return semver.Version(v).GTE(semver.Version{Major: 1, Minor: 30})
+}

@@ -4,17 +4,17 @@ go 1.23.2
 
 require (
 	github.com/blang/semver/v4 v4.0.0
-	github.com/cosi-project/runtime v0.6.4
+	github.com/cosi-project/runtime v0.7.2
 	github.com/google/go-containerregistry v0.20.2
 	github.com/hexops/gotextdiff v1.0.3
-	github.com/siderolabs/gen v0.6.1
+	github.com/siderolabs/gen v0.7.0
 	github.com/siderolabs/go-retry v0.3.3
-	github.com/siderolabs/talos/pkg/machinery v1.8.2
-	github.com/stretchr/testify v1.9.0
-	golang.org/x/sys v0.26.0
-	k8s.io/api v0.31.2
-	k8s.io/apimachinery v0.31.2
-	k8s.io/client-go v0.31.2
+	github.com/siderolabs/talos/pkg/machinery v1.8.3
+	github.com/stretchr/testify v1.10.0
+	golang.org/x/sys v0.27.0
+	k8s.io/api v0.31.3
+	k8s.io/apimachinery v0.31.3
+	k8s.io/client-go v0.31.3
 	sigs.k8s.io/yaml v1.4.0
 )
 
@@ -23,6 +23,7 @@ require (
 	github.com/ProtonMail/go-mime v0.0.0-20230322103455-7d82a3887f2f // indirect
 	github.com/ProtonMail/gopenpgp/v2 v2.7.5 // indirect
 	github.com/adrg/xdg v0.5.0 // indirect
+	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cloudflare/circl v1.3.9 // indirect
 	github.com/containerd/go-cni v1.1.10 // indirect
 	github.com/containernetworking/cni v1.2.3 // indirect

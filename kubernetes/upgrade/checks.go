@@ -39,7 +39,7 @@ type Checks struct { //nolint:govet
 }
 
 // ComponentRemovedItemsError is an error type for removed items.
-type ComponentRemovedItemsError struct { //nolint:govet
+type ComponentRemovedItemsError struct { //nolint:govet,recvcheck
 	AdmissionFlags []ComponentItem
 	CLIFlags       []ComponentItem
 	FeatureGates   []ComponentItem
