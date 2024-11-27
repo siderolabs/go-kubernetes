@@ -20,10 +20,10 @@ func TestFeatures(t *testing.T) {
 		expectedFeatureFlagSeccompDefaultEnabledByDefault                       bool
 		expectedKubeAPIServerSupportsAuthorizationConfigFile                    bool
 		expectedFeatureFlagStructuredAuthorizationConfigurationEnabledByDefault bool
-		expectedKubeSchedulerConfigurationAPIVersion                            string
 		expectedKubeSchedulerLivenessEndpoint                                   string
 		expectedKubeSchedulerReadinessEndpoint                                  string
 		expectedKubeSchedulerStartupEndpoint                                    string
+		expectedKubeAPIServerAuthorizationConfigAPIVersion                      string
 	}{
 		{
 			versions: []compatibility.Version{
@@ -34,7 +34,6 @@ func TestFeatures(t *testing.T) {
 			expectedFeatureFlagSeccompDefaultEnabledByDefault:                       false,
 			expectedKubeAPIServerSupportsAuthorizationConfigFile:                    false,
 			expectedFeatureFlagStructuredAuthorizationConfigurationEnabledByDefault: false,
-			expectedKubeSchedulerConfigurationAPIVersion:                            "kubescheduler.config.k8s.io/v1beta3",
 			expectedKubeSchedulerLivenessEndpoint:                                   "/healthz",
 			expectedKubeSchedulerReadinessEndpoint:                                  "/healthz",
 			expectedKubeSchedulerStartupEndpoint:                                    "/healthz",
@@ -48,7 +47,6 @@ func TestFeatures(t *testing.T) {
 			expectedFeatureFlagSeccompDefaultEnabledByDefault:                       true,
 			expectedKubeAPIServerSupportsAuthorizationConfigFile:                    false,
 			expectedFeatureFlagStructuredAuthorizationConfigurationEnabledByDefault: false,
-			expectedKubeSchedulerConfigurationAPIVersion:                            "kubescheduler.config.k8s.io/v1",
 			expectedKubeSchedulerLivenessEndpoint:                                   "/healthz",
 			expectedKubeSchedulerReadinessEndpoint:                                  "/healthz",
 			expectedKubeSchedulerStartupEndpoint:                                    "/healthz",
@@ -62,7 +60,6 @@ func TestFeatures(t *testing.T) {
 			expectedFeatureFlagSeccompDefaultEnabledByDefault:                       true,
 			expectedKubeAPIServerSupportsAuthorizationConfigFile:                    false,
 			expectedFeatureFlagStructuredAuthorizationConfigurationEnabledByDefault: false,
-			expectedKubeSchedulerConfigurationAPIVersion:                            "kubescheduler.config.k8s.io/v1",
 			expectedKubeSchedulerLivenessEndpoint:                                   "/healthz",
 			expectedKubeSchedulerReadinessEndpoint:                                  "/healthz",
 			expectedKubeSchedulerStartupEndpoint:                                    "/healthz",
@@ -75,10 +72,10 @@ func TestFeatures(t *testing.T) {
 			expectedFeatureFlagSeccompDefaultEnabledByDefault:                       true,
 			expectedKubeAPIServerSupportsAuthorizationConfigFile:                    true,
 			expectedFeatureFlagStructuredAuthorizationConfigurationEnabledByDefault: false,
-			expectedKubeSchedulerConfigurationAPIVersion:                            "kubescheduler.config.k8s.io/v1",
 			expectedKubeSchedulerLivenessEndpoint:                                   "/healthz",
 			expectedKubeSchedulerReadinessEndpoint:                                  "/healthz",
 			expectedKubeSchedulerStartupEndpoint:                                    "/healthz",
+			expectedKubeAPIServerAuthorizationConfigAPIVersion:                      "apiserver.config.k8s.io/v1alpha1",
 		},
 		{
 			versions: []compatibility.Version{
@@ -88,10 +85,10 @@ func TestFeatures(t *testing.T) {
 			expectedFeatureFlagSeccompDefaultEnabledByDefault:                       true,
 			expectedKubeAPIServerSupportsAuthorizationConfigFile:                    true,
 			expectedFeatureFlagStructuredAuthorizationConfigurationEnabledByDefault: true,
-			expectedKubeSchedulerConfigurationAPIVersion:                            "kubescheduler.config.k8s.io/v1",
 			expectedKubeSchedulerLivenessEndpoint:                                   "/healthz",
 			expectedKubeSchedulerReadinessEndpoint:                                  "/healthz",
 			expectedKubeSchedulerStartupEndpoint:                                    "/healthz",
+			expectedKubeAPIServerAuthorizationConfigAPIVersion:                      "apiserver.config.k8s.io/v1beta1",
 		},
 		{
 			versions: []compatibility.Version{
@@ -102,10 +99,10 @@ func TestFeatures(t *testing.T) {
 			expectedFeatureFlagSeccompDefaultEnabledByDefault:                       true,
 			expectedKubeAPIServerSupportsAuthorizationConfigFile:                    true,
 			expectedFeatureFlagStructuredAuthorizationConfigurationEnabledByDefault: true,
-			expectedKubeSchedulerConfigurationAPIVersion:                            "kubescheduler.config.k8s.io/v1",
 			expectedKubeSchedulerLivenessEndpoint:                                   "/livez",
 			expectedKubeSchedulerReadinessEndpoint:                                  "/readyz",
 			expectedKubeSchedulerStartupEndpoint:                                    "/livez",
+			expectedKubeAPIServerAuthorizationConfigAPIVersion:                      "apiserver.config.k8s.io/v1beta1",
 		},
 	} {
 		for _, version := range test.versions {
@@ -114,7 +111,6 @@ func TestFeatures(t *testing.T) {
 				assert.Equal(t, test.expectedFeatureFlagSeccompDefaultEnabledByDefault, version.FeatureFlagSeccompDefaultEnabledByDefault())
 				assert.Equal(t, test.expectedKubeAPIServerSupportsAuthorizationConfigFile, version.KubeAPIServerSupportsAuthorizationConfigFile())
 				assert.Equal(t, test.expectedFeatureFlagStructuredAuthorizationConfigurationEnabledByDefault, version.FeatureFlagStructuredAuthorizationConfigurationEnabledByDefault())
-				assert.Equal(t, test.expectedKubeSchedulerConfigurationAPIVersion, version.KubeSchedulerConfigurationAPIVersion())
 				assert.Equal(t, test.expectedKubeSchedulerLivenessEndpoint, version.KubeSchedulerHealthLivenessEndpoint())
 				assert.Equal(t, test.expectedKubeSchedulerReadinessEndpoint, version.KubeSchedulerHealthReadinessEndpoint())
 			})

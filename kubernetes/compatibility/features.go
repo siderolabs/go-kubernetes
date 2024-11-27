@@ -22,18 +22,6 @@ func (v Version) FeatureFlagSeccompDefaultEnabledByDefault() bool {
 	return semver.Version(v).GTE(semver.Version{Major: 1, Minor: 25})
 }
 
-// KubeSchedulerConfigurationAPIVersion returns the API version of the kube-scheduler configuration.
-func (v Version) KubeSchedulerConfigurationAPIVersion() string {
-	// https://v1-25.docs.kubernetes.io/docs/reference/scheduling/config/
-	// v1.25 and above supports v1
-	if semver.Version(v).GTE(semver.Version{Major: 1, Minor: 25}) {
-		return "kubescheduler.config.k8s.io/v1"
-	}
-
-	// see https://v1-24.docs.kubernetes.io/docs/reference/scheduling/config/
-	return "kubescheduler.config.k8s.io/v1beta3"
-}
-
 // KubeSchedulerHealthLivenessEndpoint returns the liveness endpoint for the kube-scheduler health check.
 func (v Version) KubeSchedulerHealthLivenessEndpoint() string {
 	// https://github.com/kubernetes/kubernetes/pull/118148
@@ -80,4 +68,16 @@ func (v Version) FeatureFlagStructuredAuthorizationConfigurationEnabledByDefault
 	// https://v1-30.docs.kubernetes.io/docs/reference/access-authn-authz/authorization/#using-configuration-file-for-authorization
 	// v1.30 and above enables structured authorization configuration by default
 	return semver.Version(v).GTE(semver.Version{Major: 1, Minor: 30})
+}
+
+// KubeAPIServerAuthorizationConfigAPIVersion returns the API version of the kube-apiserver authorization config.
+func (v Version) KubeAPIServerAuthorizationConfigAPIVersion() string {
+	// https://v1-30.docs.kubernetes.io/docs/reference/access-authn-authz/authorization/#using-configuration-file-for-authorization
+	// v1.30 and above supports v1beta1
+	if semver.Version(v).GTE(semver.Version{Major: 1, Minor: 30}) {
+		return "apiserver.config.k8s.io/v1beta1"
+	}
+
+	// see https://v1-29.docs.kubernetes.io/docs/reference/access-authn-authz/authorization/#configuring-the-api-server-using-an-authorization-config-file
+	return "apiserver.config.k8s.io/v1alpha1"
 }
