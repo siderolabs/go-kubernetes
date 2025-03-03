@@ -21,7 +21,7 @@ import (
 )
 
 func TestK8sComponentRemovedItemsNoError(t *testing.T) {
-	ctx, ctxCancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, ctxCancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer ctxCancel()
 
 	resourceState := state.WrapCore(namespaced.NewState(inmem.Build))
@@ -54,7 +54,7 @@ func TestK8sComponentRemovedItemsNoError(t *testing.T) {
 }
 
 func TestK8sComponentRemovedItemsWithError(t *testing.T) {
-	ctx, ctxCancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, ctxCancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer ctxCancel()
 
 	resourceState := state.WrapCore(namespaced.NewState(inmem.Build))
@@ -163,7 +163,7 @@ func TestK8sComponentRemovedItemsWithError(t *testing.T) {
 }
 
 func TestK8sComponentRemovedItemsWithKubeletError(t *testing.T) {
-	ctx, ctxCancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, ctxCancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer ctxCancel()
 
 	resourceState := state.WrapCore(namespaced.NewState(inmem.Build))
