@@ -81,3 +81,10 @@ func (v Version) KubeAPIServerAuthorizationConfigAPIVersion() string {
 	// see https://v1-29.docs.kubernetes.io/docs/reference/access-authn-authz/authorization/#configuring-the-api-server-using-an-authorization-config-file
 	return "apiserver.config.k8s.io/v1alpha1"
 }
+
+// CloudProviderFlagRemoved returns true if the cloud provider flag is removed.
+func (v Version) CloudProviderFlagRemoved() bool {
+	// See https://github.com/kubernetes/kubernetes/pull/130162
+	// v1.33 and above removes the cloud provider flag
+	return semver.Version(v).GTE(semver.Version{Major: 1, Minor: 33})
+}

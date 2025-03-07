@@ -257,7 +257,29 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 			// https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/CHANGELOG-1.33.md
 			"1.32->1.33": {
 				removedFeatureGates: []string{
-					"KubeProxyDrainingTerminatingNodes", // https://github.com/kubernetes/kubernetes/pull/129692
+					"AppArmor",                               // https://github.com/kubernetes/kubernetes/pull/129375
+					"AppArmorFields",                         // https://github.com/kubernetes/kubernetes/pull/129497
+					"DisableCloudProviders",                  // https://github.com/kubernetes/kubernetes/pull/130162
+					"DisableKubeletCloudCredentialProviders", // https://github.com/kubernetes/kubernetes/pull/130162
+					"KubeProxyDrainingTerminatingNodes",      // https://github.com/kubernetes/kubernetes/pull/129692
+				},
+				kubeAPIServerChecks: apiServerCheck{
+					componentCheck: componentCheck{
+						removedFlags: []string{
+							"cloud-provider",
+							"cloud-config",
+						},
+					},
+				},
+				kubeControllerManagerChecks: componentCheck{
+					removedFlags: []string{
+						"cloud-provider",
+					},
+				},
+				kubeletChecks: componentCheck{
+					removedFlags: []string{
+						"cloud-provider",
+					},
 				},
 			},
 		},
