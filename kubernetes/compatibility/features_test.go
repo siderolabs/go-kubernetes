@@ -20,6 +20,7 @@ func TestFeatures(t *testing.T) {
 		expectedFeatureFlagSeccompDefaultEnabledByDefault                       bool
 		expectedKubeAPIServerSupportsAuthorizationConfigFile                    bool
 		expectedFeatureFlagStructuredAuthorizationConfigurationEnabledByDefault bool
+		expectedCloudProviderFlagRemoved                                        bool
 		expectedKubeSchedulerLivenessEndpoint                                   string
 		expectedKubeSchedulerReadinessEndpoint                                  string
 		expectedKubeSchedulerStartupEndpoint                                    string
@@ -34,9 +35,11 @@ func TestFeatures(t *testing.T) {
 			expectedFeatureFlagSeccompDefaultEnabledByDefault:                       false,
 			expectedKubeAPIServerSupportsAuthorizationConfigFile:                    false,
 			expectedFeatureFlagStructuredAuthorizationConfigurationEnabledByDefault: false,
+			expectedCloudProviderFlagRemoved:                                        false,
 			expectedKubeSchedulerLivenessEndpoint:                                   "/healthz",
 			expectedKubeSchedulerReadinessEndpoint:                                  "/healthz",
 			expectedKubeSchedulerStartupEndpoint:                                    "/healthz",
+			expectedKubeAPIServerAuthorizationConfigAPIVersion:                      "apiserver.config.k8s.io/v1alpha1",
 		},
 		{
 			versions: []compatibility.Version{
@@ -47,9 +50,11 @@ func TestFeatures(t *testing.T) {
 			expectedFeatureFlagSeccompDefaultEnabledByDefault:                       true,
 			expectedKubeAPIServerSupportsAuthorizationConfigFile:                    false,
 			expectedFeatureFlagStructuredAuthorizationConfigurationEnabledByDefault: false,
+			expectedCloudProviderFlagRemoved:                                        false,
 			expectedKubeSchedulerLivenessEndpoint:                                   "/healthz",
 			expectedKubeSchedulerReadinessEndpoint:                                  "/healthz",
 			expectedKubeSchedulerStartupEndpoint:                                    "/healthz",
+			expectedKubeAPIServerAuthorizationConfigAPIVersion:                      "apiserver.config.k8s.io/v1alpha1",
 		},
 		{
 			versions: []compatibility.Version{
@@ -60,9 +65,11 @@ func TestFeatures(t *testing.T) {
 			expectedFeatureFlagSeccompDefaultEnabledByDefault:                       true,
 			expectedKubeAPIServerSupportsAuthorizationConfigFile:                    false,
 			expectedFeatureFlagStructuredAuthorizationConfigurationEnabledByDefault: false,
+			expectedCloudProviderFlagRemoved:                                        false,
 			expectedKubeSchedulerLivenessEndpoint:                                   "/healthz",
 			expectedKubeSchedulerReadinessEndpoint:                                  "/healthz",
 			expectedKubeSchedulerStartupEndpoint:                                    "/healthz",
+			expectedKubeAPIServerAuthorizationConfigAPIVersion:                      "apiserver.config.k8s.io/v1alpha1",
 		},
 		{
 			versions: []compatibility.Version{
@@ -72,6 +79,7 @@ func TestFeatures(t *testing.T) {
 			expectedFeatureFlagSeccompDefaultEnabledByDefault:                       true,
 			expectedKubeAPIServerSupportsAuthorizationConfigFile:                    true,
 			expectedFeatureFlagStructuredAuthorizationConfigurationEnabledByDefault: false,
+			expectedCloudProviderFlagRemoved:                                        false,
 			expectedKubeSchedulerLivenessEndpoint:                                   "/healthz",
 			expectedKubeSchedulerReadinessEndpoint:                                  "/healthz",
 			expectedKubeSchedulerStartupEndpoint:                                    "/healthz",
@@ -85,6 +93,7 @@ func TestFeatures(t *testing.T) {
 			expectedFeatureFlagSeccompDefaultEnabledByDefault:                       true,
 			expectedKubeAPIServerSupportsAuthorizationConfigFile:                    true,
 			expectedFeatureFlagStructuredAuthorizationConfigurationEnabledByDefault: true,
+			expectedCloudProviderFlagRemoved:                                        false,
 			expectedKubeSchedulerLivenessEndpoint:                                   "/healthz",
 			expectedKubeSchedulerReadinessEndpoint:                                  "/healthz",
 			expectedKubeSchedulerStartupEndpoint:                                    "/healthz",
@@ -93,12 +102,27 @@ func TestFeatures(t *testing.T) {
 		{
 			versions: []compatibility.Version{
 				{Major: 1, Minor: 31},
+			},
+			expectedSupportsKubeletConfigContainerRuntimeEndpoint:                   true,
+			expectedFeatureFlagSeccompDefaultEnabledByDefault:                       true,
+			expectedKubeAPIServerSupportsAuthorizationConfigFile:                    true,
+			expectedFeatureFlagStructuredAuthorizationConfigurationEnabledByDefault: true,
+			expectedCloudProviderFlagRemoved:                                        false,
+			expectedKubeSchedulerLivenessEndpoint:                                   "/livez",
+			expectedKubeSchedulerReadinessEndpoint:                                  "/readyz",
+			expectedKubeSchedulerStartupEndpoint:                                    "/livez",
+			expectedKubeAPIServerAuthorizationConfigAPIVersion:                      "apiserver.config.k8s.io/v1beta1",
+		},
+		{
+			versions: []compatibility.Version{
+				{Major: 1, Minor: 33},
 				{Major: 1, Minor: 99},
 			},
 			expectedSupportsKubeletConfigContainerRuntimeEndpoint:                   true,
 			expectedFeatureFlagSeccompDefaultEnabledByDefault:                       true,
 			expectedKubeAPIServerSupportsAuthorizationConfigFile:                    true,
 			expectedFeatureFlagStructuredAuthorizationConfigurationEnabledByDefault: true,
+			expectedCloudProviderFlagRemoved:                                        true,
 			expectedKubeSchedulerLivenessEndpoint:                                   "/livez",
 			expectedKubeSchedulerReadinessEndpoint:                                  "/readyz",
 			expectedKubeSchedulerStartupEndpoint:                                    "/livez",
@@ -111,8 +135,10 @@ func TestFeatures(t *testing.T) {
 				assert.Equal(t, test.expectedFeatureFlagSeccompDefaultEnabledByDefault, version.FeatureFlagSeccompDefaultEnabledByDefault())
 				assert.Equal(t, test.expectedKubeAPIServerSupportsAuthorizationConfigFile, version.KubeAPIServerSupportsAuthorizationConfigFile())
 				assert.Equal(t, test.expectedFeatureFlagStructuredAuthorizationConfigurationEnabledByDefault, version.FeatureFlagStructuredAuthorizationConfigurationEnabledByDefault())
+				assert.Equal(t, test.expectedCloudProviderFlagRemoved, version.CloudProviderFlagRemoved())
 				assert.Equal(t, test.expectedKubeSchedulerLivenessEndpoint, version.KubeSchedulerHealthLivenessEndpoint())
 				assert.Equal(t, test.expectedKubeSchedulerReadinessEndpoint, version.KubeSchedulerHealthReadinessEndpoint())
+				assert.Equal(t, test.expectedKubeAPIServerAuthorizationConfigAPIVersion, version.KubeAPIServerAuthorizationConfigAPIVersion())
 			})
 		}
 	}

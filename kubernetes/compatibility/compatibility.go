@@ -52,5 +52,9 @@ func VersionFromImageRef(imageRef string) Version {
 		return latest
 	}
 
-	return Version(v)
+	return Version(semver.Version{
+		Major: v.Major,
+		Minor: v.Minor,
+		Patch: v.Patch,
+	})
 }

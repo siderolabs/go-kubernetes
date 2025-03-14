@@ -55,6 +55,12 @@ func TestVersionFromImageRef(t *testing.T) {
 
 			expectedVersion: compatibility.Version{Major: 1, Minor: 99},
 		},
+		{
+			name:     "alpha version",
+			imageRef: "ghcr.io/siderolabs/kubelet:v1.33.0-alpha.1",
+
+			expectedVersion: compatibility.Version{Major: 1, Minor: 33},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			actualVersion := compatibility.VersionFromImageRef(test.imageRef)
