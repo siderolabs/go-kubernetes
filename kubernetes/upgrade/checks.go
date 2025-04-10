@@ -259,9 +259,15 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 				removedFeatureGates: []string{
 					"AppArmor",                               // https://github.com/kubernetes/kubernetes/pull/129375
 					"AppArmorFields",                         // https://github.com/kubernetes/kubernetes/pull/129497
+					"CPUManager",                             // https://github.com/kubernetes/kubernetes/pull/129296
 					"DisableCloudProviders",                  // https://github.com/kubernetes/kubernetes/pull/130162
 					"DisableKubeletCloudCredentialProviders", // https://github.com/kubernetes/kubernetes/pull/130162
-					"KubeProxyDrainingTerminatingNodes",      // https://github.com/kubernetes/kubernetes/pull/129692
+					"DynamicResourceAllocation",
+					"JobPodFailurePolicy",                     // https://github.com/kubernetes/kubernetes/pull/129498
+					"KubeProxyDrainingTerminatingNodes",       // https://github.com/kubernetes/kubernetes/pull/129692
+					"PDBUnhealthyPodEvictionPolicy",           // https://github.com/kubernetes/kubernetes/pull/129500
+					"PersistentVolumeLastPhaseTransitionTime", // https://github.com/kubernetes/kubernetes/pull/129295
+					"VolumeCapacityPriority",                  // https://github.com/kubernetes/kubernetes/pull/128184
 				},
 				kubeAPIServerChecks: apiServerCheck{
 					componentCheck: componentCheck{
@@ -272,11 +278,6 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 					},
 				},
 				kubeControllerManagerChecks: componentCheck{
-					removedFlags: []string{
-						"cloud-provider",
-					},
-				},
-				kubeletChecks: componentCheck{
 					removedFlags: []string{
 						"cloud-provider",
 					},
