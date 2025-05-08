@@ -272,14 +272,8 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 				kubeAPIServerChecks: apiServerCheck{
 					componentCheck: componentCheck{
 						removedFlags: []string{
-							"cloud-provider",
 							"cloud-config",
 						},
-					},
-				},
-				kubeControllerManagerChecks: componentCheck{
-					removedFlags: []string{
-						"cloud-provider",
 					},
 				},
 			},
@@ -315,7 +309,7 @@ func (checks *Checks) Run(ctx context.Context) error {
 				switch id {
 				case k8s.APIServerID:
 					k8sComponentCheck.PopulateRemovedAdmissionPlugins(node, id, pod.Spec.Containers[0].Command, k8sComponentChecks.kubeAPIServerChecks.removedAdmissionPlugins)
-					k8sComponentCheck.PopulateRemovedCLIFlags(node, id, pod.Spec.Containers[0].Command, k8sComponentChecks.kubeAPIServerChecks.componentCheck.removedFlags)
+					k8sComponentCheck.PopulateRemovedCLIFlags(node, id, pod.Spec.Containers[0].Command, k8sComponentChecks.kubeAPIServerChecks.removedFlags)
 				case k8s.ControllerManagerID:
 					k8sComponentCheck.PopulateRemovedCLIFlags(node, id, pod.Spec.Containers[0].Command, k8sComponentChecks.kubeControllerManagerChecks.removedFlags)
 				case k8s.SchedulerID:
