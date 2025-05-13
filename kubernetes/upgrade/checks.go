@@ -257,12 +257,11 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 			// https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/CHANGELOG-1.33.md
 			"1.32->1.33": {
 				removedFeatureGates: []string{
-					"AppArmor",                               // https://github.com/kubernetes/kubernetes/pull/129375
-					"AppArmorFields",                         // https://github.com/kubernetes/kubernetes/pull/129497
-					"CPUManager",                             // https://github.com/kubernetes/kubernetes/pull/129296
-					"DisableCloudProviders",                  // https://github.com/kubernetes/kubernetes/pull/130162
-					"DisableKubeletCloudCredentialProviders", // https://github.com/kubernetes/kubernetes/pull/130162
-					"DynamicResourceAllocation",
+					"AppArmor",                                // https://github.com/kubernetes/kubernetes/pull/129375
+					"AppArmorFields",                          // https://github.com/kubernetes/kubernetes/pull/129497
+					"CPUManager",                              // https://github.com/kubernetes/kubernetes/pull/129296
+					"DisableCloudProviders",                   // https://github.com/kubernetes/kubernetes/pull/130162
+					"DisableKubeletCloudCredentialProviders",  // https://github.com/kubernetes/kubernetes/pull/130162
 					"JobPodFailurePolicy",                     // https://github.com/kubernetes/kubernetes/pull/129498
 					"KubeProxyDrainingTerminatingNodes",       // https://github.com/kubernetes/kubernetes/pull/129692
 					"PDBUnhealthyPodEvictionPolicy",           // https://github.com/kubernetes/kubernetes/pull/129500
