@@ -276,6 +276,10 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 					},
 				},
 			},
+			// https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/CHANGELOG-1.34.md
+			"1.33->1.34": {
+				// [TODO]: fill me in closer to the release
+			},
 		},
 	}, nil
 }
