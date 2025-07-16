@@ -154,7 +154,6 @@ func TestK8sComponentRemovedItemsWithError(t *testing.T) {
 	checkErrors := checks.Run(ctx)
 
 	var removedItemsError upgrade.ComponentRemovedItemsError
-
 	if !errors.As(checkErrors, &removedItemsError) {
 		t.Fatal("expected K8sComponentRemovedItemsError")
 	}
@@ -302,7 +301,6 @@ func TestK8sComponentRemovedItemsWithKubeletError(t *testing.T) {
 	checkErrors := checks.Run(ctx)
 
 	var removedItemsError upgrade.ComponentRemovedItemsError
-
 	if !errors.As(checkErrors, &removedItemsError) {
 		t.Fatal("expected K8sComponentRemovedItemsError")
 	}
