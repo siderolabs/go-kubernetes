@@ -279,6 +279,8 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 			// https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/CHANGELOG-1.34.md
 			"1.33->1.34": {
 				removedFeatureGates: []string{
+					"DevicePluginCDIDevices",  // https://github.com/kubernetes/kubernetes/pull/132083
+					"LegacySidecarContainers", // https://github.com/kubernetes/kubernetes/pull/131463
 					"PodDisruptionConditions", // https://github.com/kubernetes/kubernetes/pull/129501
 				},
 				kubeletChecks: componentCheck{
