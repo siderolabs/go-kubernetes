@@ -289,6 +289,9 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 					},
 				},
 			},
+			"1.34->1.35": {
+				// [TODO]: fill in removed feature gates and flags when 1.35 goes beta
+			},
 		},
 	}, nil
 }
