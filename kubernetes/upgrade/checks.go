@@ -289,8 +289,17 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 					},
 				},
 			},
+			// https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/CHANGELOG-1.35.md
 			"1.34->1.35": {
-				// [TODO]: fill in removed feature gates and flags when 1.35 goes beta
+				kubeletChecks: componentCheck{
+					removedFlags: []string{
+						"pod-infra-container-image", // https://github.com/kubernetes/kubernetes/pull/133779
+					},
+				},
+				removedFeatureGates: []string{
+					"SizeMemoryBackedVolumes",          // https://github.com/kubernetes/kubernetes/pull/133720
+					"UserNamespacesHostNetworkSupport", // https://github.com/kubernetes/kubernetes/pull/132157
+				},
 			},
 		},
 	}, nil
