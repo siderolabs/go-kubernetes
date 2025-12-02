@@ -54,7 +54,7 @@ func waitForDeploymentsRollout(ctx context.Context, clientset *kubernetes.Client
 		if !channel.SendWithContext(ctx, resultCh,
 			RolloutProgress{
 				Object: obj,
-				Path:   manifestPath(obj),
+				Path:   getManifestPath(obj),
 			}) {
 			return ctx.Err()
 		}
@@ -92,7 +92,7 @@ func waitForDaemonSetsRollout(ctx context.Context, clientset *kubernetes.Client,
 		if !channel.SendWithContext(ctx, resultCh,
 			RolloutProgress{
 				Object: obj,
-				Path:   manifestPath(obj),
+				Path:   getManifestPath(obj),
 			}) {
 			return ctx.Err()
 		}
