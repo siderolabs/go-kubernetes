@@ -19,8 +19,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/client-go/discovery"
-	memory "k8s.io/client-go/discovery/cached"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
@@ -48,17 +46,10 @@ func Sync(ctx context.Context, objects []Manifest, config *rest.Config, dryRun b
 		config.Dial = nil
 	}()
 
-	k8sClient, err := dynamic.NewForConfig(config)
+	k8sClient, mapper, err := initSyncHelpers(config)
 	if err != nil {
 		return err
 	}
-
-	dc, err := discovery.NewDiscoveryClientForConfig(config)
-	if err != nil {
-		return err
-	}
-
-	mapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(dc))
 
 	for _, obj := range objects {
 		var (
@@ -79,7 +70,7 @@ func Sync(ctx context.Context, objects []Manifest, config *rest.Config, dryRun b
 		}
 
 		if !channel.SendWithContext(ctx, resultCh, SyncResult{
-			Path:    manifestPath(resp),
+			Path:    getManifestPath(resp),
 			Object:  resp,
 			Diff:    diff,
 			Skipped: skipped,
@@ -215,19 +206,27 @@ func getResourceDiff(ctx context.Context, dr dynamic.ResourceInterface, obj Mani
 	return manifestDiff(current, resp)
 }
 
-func manifestPath(obj Manifest) string {
-	gv := obj.GetObjectKind().GroupVersionKind().Version
-	if obj.GetObjectKind().GroupVersionKind().Group != "" {
-		gv = obj.GetObjectKind().GroupVersionKind().Group + "/" + gv
-	}
-
+func getManifestPath(obj Manifest) string {
+	version := obj.GetObjectKind().GroupVersionKind().Version
+	group := obj.GetObjectKind().GroupVersionKind().Group
+	groupKind := obj.GetObjectKind().GroupVersionKind().Kind
 	name := obj.GetName()
+	namespace := obj.GetNamespace()
 
-	if obj.GetNamespace() != "" {
-		name = obj.GetNamespace() + "/" + name
+	return formatManifestPath(version, group, namespace, name, groupKind)
+}
+
+func formatManifestPath(version string, group string, namespace string, name string, groupKind string) string {
+	gv := version
+	if group != "" {
+		gv = group + "/" + gv
 	}
 
-	return fmt.Sprintf("%s.%s/%s", gv, obj.GetObjectKind().GroupVersionKind().Kind, name)
+	if namespace != "" {
+		name = namespace + "/" + name
+	}
+
+	return fmt.Sprintf("%s.%s/%s", gv, groupKind, name)
 }
 
 func manifestDiff(a, b Manifest) (string, error) {
@@ -238,7 +237,7 @@ func manifestDiff(a, b Manifest) (string, error) {
 	)
 
 	if a != nil {
-		path = manifestPath(a)
+		path = getManifestPath(a)
 
 		ma, err = k8syaml.Marshal(a)
 		if err != nil {
@@ -247,7 +246,7 @@ func manifestDiff(a, b Manifest) (string, error) {
 	}
 
 	if b != nil {
-		path = manifestPath(b)
+		path = getManifestPath(b)
 
 		mb, err = k8syaml.Marshal(b)
 		if err != nil {
