@@ -22,7 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
-	memory "k8s.io/client-go/discovery/cached"
+	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
@@ -47,6 +47,8 @@ const (
 	CreateAction DiffAction = "create"
 	PruneAction  DiffAction = "prune"
 	ModifyAction DiffAction = "modify"
+
+	namespaceKind = "Namespace"
 )
 
 // DiffResult is a diff result for one object. Diff field is populated only if Action == ModifyAction.
@@ -165,7 +167,7 @@ func SyncSSA(
 	newNamespaces := []string{}
 
 	for _, o := range objects {
-		if o.GetKind() != "Namespace" {
+		if o.GetKind() != namespaceKind {
 			continue
 		}
 
@@ -182,18 +184,21 @@ func SyncSSA(
 
 	for _, o := range objects {
 		if slices.Contains(newNamespaces, o.GetNamespace()) ||
-			(o.GetKind() == "Namespace" && slices.Contains(newNamespaces, o.GetName())) {
+			(o.GetKind() == namespaceKind && slices.Contains(newNamespaces, o.GetName())) {
 			clientSideDryRunResources = append(clientSideDryRunResources, o)
 		} else {
 			serverSideDryRunResources = append(serverSideDryRunResources, o)
 		}
 	}
 
-	err = applySSA(ctx, fieldManagerName, helpers, clientSideDryRunResources, eventCh, common.DryRunClient)
-	if err != nil {
-		return err
+	if len(clientSideDryRunResources) > 0 {
+		err = applySSA(ctx, fieldManagerName, helpers, clientSideDryRunResources, eventCh, common.DryRunClient)
+		if err != nil {
+			return err
+		}
 	}
 
+	// Run even if there are no resources, as the prune check still needs to be done.
 	return applySSA(ctx, fieldManagerName, helpers, serverSideDryRunResources, eventCh, common.DryRunServer)
 }
 
@@ -215,6 +220,10 @@ func applySSA(ctx context.Context, fieldManagerName string, helpers syncHelpers,
 			// ForceConflicts overwrites the fields when applying if the field manager differs.
 			ForceConflicts: false,
 		}
+	} else {
+		// Disable pruning on client side dry-run as we're running only a subset of the resources,
+		// which would cause the omitted resources to be marked for pruning.
+		applyOps.NoPrune = true
 	}
 
 	kubeEventCh := helpers.applier.Run(ctx, helpers.inventoryInfo, objects, applyOps)
@@ -264,9 +273,9 @@ func handleKubernetesEvent(e kevent.Event, objects []Manifest, eventCh chan<- ev
 		}
 
 		eventCh <- event.Event{
-			Type:             event.ApplyType,
-			ObjectIdentifier: e.ApplyEvent.Identifier,
-			Error:            applyFailedErr,
+			Type:     event.ApplyType,
+			ObjectID: e.ApplyEvent.Identifier,
+			Error:    applyFailedErr,
 
 			Apply: event.ApplyEvent{
 				Skipped: applySkipped,
@@ -274,8 +283,8 @@ func handleKubernetesEvent(e kevent.Event, objects []Manifest, eventCh chan<- ev
 		}
 	case kevent.PruneType:
 		eventCh <- event.Event{
-			Type:             event.PruneType,
-			ObjectIdentifier: e.PruneEvent.Identifier,
+			Type:     event.PruneType,
+			ObjectID: e.PruneEvent.Identifier,
 		}
 	case kevent.WaitType:
 		var reconcileErr error
@@ -292,9 +301,9 @@ func handleKubernetesEvent(e kevent.Event, objects []Manifest, eventCh chan<- ev
 
 		if reconcileErr != nil || e.WaitEvent.Status == kevent.ReconcileSuccessful {
 			eventCh <- event.Event{
-				Type:             event.RolloutType,
-				ObjectIdentifier: e.WaitEvent.Identifier,
-				Error:            reconcileErr,
+				Type:     event.RolloutType,
+				ObjectID: e.WaitEvent.Identifier,
+				Error:    reconcileErr,
 			}
 		}
 
@@ -332,11 +341,11 @@ func initHelpers(ctx context.Context, config *rest.Config, inventoryName string,
 
 	cachedDC := memory.NewMemCacheClient(discoveryClient)
 
-	clientGetter := k8sRESTClientGetter{
-		restConfig:      config,
-		discoveryClient: cachedDC,
-		mapper:          mapper,
-		clientConfig:    nil, // TODO: figure this out
+	clientGetter := K8sRESTClientGetter{
+		RestConfig:      config,
+		DiscoveryClient: cachedDC,
+		Mapper:          mapper,
+		ClientConfig:    nil,
 	}
 
 	factory := util.NewFactory(clientGetter)
@@ -363,6 +372,11 @@ func initHelpers(ctx context.Context, config *rest.Config, inventoryName string,
 	inventoryInfo := inventory.NewSingleObjectInfo(inventory.ID(inventoryName), types.NamespacedName{Namespace: inventoryNamespace, Name: inventoryName})
 
 	err = AssureInventoryNamespace(ctx, config, inventoryNamespace, dynamicClient)
+	if err != nil {
+		return syncHelpers{}, err
+	}
+
+	err = AssureInventory(ctx, inventoryClient, inventoryInfo)
 	if err != nil {
 		return syncHelpers{}, err
 	}
@@ -447,6 +461,25 @@ func AssureInventoryNamespace(ctx context.Context, config *rest.Config, inventor
 	return nil
 }
 
+func AssureInventory(ctx context.Context, inventoryClient inventory.Client, inventoryInfo *inventory.SingleObjectInfo) error {
+	_, getErr := inventoryClient.Get(ctx, inventoryInfo, inventory.GetOptions{})
+	if apierrors.IsNotFound(getErr) {
+		inv, err := inventoryClient.NewInventory(inventoryInfo)
+		if err != nil {
+			return err
+		}
+
+		err = inventoryClient.CreateOrUpdate(ctx, inv, inventory.UpdateOptions{})
+		if err != nil {
+			return err
+		}
+	} else {
+		return getErr
+	}
+
+	return nil
+}
+
 func initSyncHelpers(config *rest.Config) (*dynamic.DynamicClient, *restmapper.DeferredDiscoveryRESTMapper, error) {
 	k8sClient, err := dynamic.NewForConfig(config)
 	if err != nil {
@@ -463,25 +496,26 @@ func initSyncHelpers(config *rest.Config) (*dynamic.DynamicClient, *restmapper.D
 	return k8sClient, mapper, err
 }
 
-type k8sRESTClientGetter struct {
-	restConfig      *rest.Config
-	discoveryClient discovery.CachedDiscoveryInterface
-	mapper          meta.RESTMapper
-	clientConfig    clientcmd.ClientConfig
+// K8sRESTClientGetter is a basic implementation of the kubernetes genericclioptions.RESTClientGetter.
+type K8sRESTClientGetter struct {
+	RestConfig      *rest.Config
+	DiscoveryClient discovery.CachedDiscoveryInterface
+	Mapper          meta.RESTMapper
+	ClientConfig    clientcmd.ClientConfig
 }
 
-func (getter k8sRESTClientGetter) ToRESTConfig() (*rest.Config, error) {
-	return getter.restConfig, nil
+func (getter K8sRESTClientGetter) ToRESTConfig() (*rest.Config, error) {
+	return getter.RestConfig, nil
 }
 
-func (getter k8sRESTClientGetter) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
-	return getter.discoveryClient, nil
+func (getter K8sRESTClientGetter) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
+	return getter.DiscoveryClient, nil
 }
 
-func (getter k8sRESTClientGetter) ToRESTMapper() (meta.RESTMapper, error) {
-	return getter.mapper, nil
+func (getter K8sRESTClientGetter) ToRESTMapper() (meta.RESTMapper, error) {
+	return getter.Mapper, nil
 }
 
-func (getter k8sRESTClientGetter) ToRawKubeConfigLoader() clientcmd.ClientConfig {
-	return getter.clientConfig
+func (getter K8sRESTClientGetter) ToRawKubeConfigLoader() clientcmd.ClientConfig {
+	return getter.ClientConfig
 }

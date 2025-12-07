@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/blang/semver/v4 v4.0.0
 	github.com/cosi-project/runtime v0.10.6
+	github.com/fluxcd/cli-utils v0.36.0-flux.15
 	github.com/fluxcd/pkg/ssa v0.60.0
 	github.com/google/go-containerregistry v0.20.6
 	github.com/hexops/gotextdiff v1.0.3
@@ -18,6 +19,7 @@ require (
 	k8s.io/client-go v0.34.1
 	k8s.io/kubectl v0.34.0
 	sigs.k8s.io/cli-utils v0.37.3-0.20250918194211-77c836a69463
+	sigs.k8s.io/controller-runtime v0.22.2
 	sigs.k8s.io/yaml v1.6.0
 )
 
@@ -38,7 +40,6 @@ require (
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/exponent-io/jsonpath v0.0.0-20210407135951-1de76d718b3f // indirect
 	github.com/fatih/camelcase v1.0.0 // indirect
-	github.com/fluxcd/cli-utils v0.36.0-flux.15 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/gertd/go-pluralize v0.2.1 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
@@ -114,7 +115,6 @@ require (
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20250710124328-f3f2b991d03b // indirect
 	k8s.io/utils v0.0.0-20250820121507-0af2bda4dd1d // indirect
-	sigs.k8s.io/controller-runtime v0.22.2 // indirect
 	sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 // indirect
 	sigs.k8s.io/kustomize/api v0.20.1 // indirect
 	sigs.k8s.io/kustomize/kyaml v0.20.1 // indirect

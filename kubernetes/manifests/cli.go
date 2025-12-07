@@ -6,9 +6,59 @@ package manifests
 
 import (
 	"context"
+	"fmt"
 
 	"k8s.io/client-go/rest"
+
+	"github.com/siderolabs/go-kubernetes/kubernetes/manifests/event"
 )
+
+// SyncWithLogSSA applies the manifests to the cluster via ssa and logs the results via logFunc.
+func SyncWithLogSSA(
+	ctx context.Context,
+	objects []Manifest,
+	config *rest.Config,
+	dryRun bool,
+	fieldManagerName string,
+	inventoryNamespace string,
+	inventoryName string,
+	logFunc func(string, ...any),
+) error {
+	syncCh := make(chan event.Event)
+	errCh := make(chan error, 1)
+
+	go func() {
+		errCh <- SyncSSA(ctx, objects, config, dryRun, syncCh, fieldManagerName, inventoryNamespace, inventoryName)
+	}()
+
+	logFunc("updating manifests")
+
+syncLoop:
+	for {
+		select {
+		case e := <-syncCh:
+			objPath := fmt.Sprintf("%s %s/%s", e.ObjectID.GroupKind.Kind, e.ObjectID.Namespace, e.ObjectID.Name)
+			if e.ObjectID.GroupKind.Kind == namespaceKind {
+				objPath = fmt.Sprintf("%s %s", e.ObjectID.GroupKind.Kind, e.ObjectID.Name)
+			}
+
+			if e.Error != nil {
+				logFunc("%s of %s failed: %s", e.Type, objPath, e.Error.Error())
+			} else {
+				logFunc("%s of %s successful", e.Type, objPath)
+			}
+
+		case err := <-errCh:
+			if err == nil {
+				break syncLoop
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
 
 // SyncWithLog applies the manifests to the cluster logging the results via logFunc.
 func SyncWithLog(ctx context.Context, objects []Manifest, config *rest.Config, dryRun bool, logFunc func(string, ...any)) error {

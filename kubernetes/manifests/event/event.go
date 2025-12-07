@@ -34,9 +34,9 @@ type RolloutEvent struct{}
 // If error is not nil it means the action has failed.
 // The event for the given event.Type is populated.
 type Event struct {
-	Type             Type
-	Error            error
-	ObjectIdentifier object.ObjMetadata
+	Type     Type
+	Error    error
+	ObjectID object.ObjMetadata
 
 	Apply   ApplyEvent
 	Prune   PruneEvent
