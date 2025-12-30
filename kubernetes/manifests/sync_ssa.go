@@ -58,18 +58,48 @@ type DiffResult struct {
 	Diff   string
 }
 
+// SSApplyBehaviorOptions define the options purely ralted to the apply behavior of server side apply.
+type SSApplyBehaviorOptions struct {
+	InventoryPolicy inventory.Policy
+	// ReconcileTimeout defines whether the applier should wait until all applied resources have been reconciled, and if so, how long to wait.
+	ReconcileTimeout time.Duration
+	// PruneTimeout defines whether we should wait for all resources to be fully deleted after pruning, and if so, how long we should wait.
+	PruneTimeout time.Duration
+	// ForceConflicts overwrites the fields when applying if the field manager differs.
+	ForceConflicts bool
+	// ForceConflicts overwrites the fields when applying if the field manager differs.
+	DryRun bool
+	// NoPrune defines whether pruning of previously applied objects should happen after apply.
+	NoPrune bool
+}
+
+// SSAOptions define the kubernetes server side apply related options.
+type SSAOptions struct {
+	FieldManagerName   string
+	InventoryNamespace string
+	InventoryName      string
+
+	SSApplyBehaviorOptions
+}
+
+func DefaultSSApplyBehaviorOptions() SSApplyBehaviorOptions {
+	return SSApplyBehaviorOptions{
+		InventoryPolicy:  inventory.PolicyAdoptIfNoInventory,
+		ReconcileTimeout: 3 * time.Minute,
+		PruneTimeout:     3 * time.Minute,
+	}
+}
+
 // DiffSSA performs a diff between the current and desired state, returning objects that are to be created, pruned and modified.
 func DiffSSA(
 	ctx context.Context,
 	objects []Manifest,
 	config *rest.Config,
-	fieldManagerName string,
-	inventoryNamespace string,
-	inventoryName string,
+	ops SSAOptions,
 ) ([]DiffResult, error) {
 	result := []DiffResult{}
 
-	helpers, err := initHelpers(ctx, config, inventoryName, inventoryNamespace)
+	helpers, err := initHelpers(ctx, config, ops)
 	if err != nil {
 		return nil, err
 	}
@@ -89,22 +119,24 @@ func DiffSSA(
 		return nil, err
 	}
 
-	for _, obj := range pruneObjs {
-		// create a "deleted" diff
-		diffObj := obj.DeepCopy()
-		// remove managed fields as they're not really useful for the prune diff
-		diffObj.SetManagedFields([]metav1.ManagedFieldsEntry{})
+	if !ops.NoPrune {
+		for _, obj := range pruneObjs {
+			// create a "deleted" diff
+			diffObj := obj.DeepCopy()
+			// remove managed fields as they're not really useful for the prune diff
+			diffObj.SetManagedFields([]metav1.ManagedFieldsEntry{})
 
-		diff, err := manifestDiff(diffObj, nil)
-		if err != nil {
-			return nil, err
+			diff, err := manifestDiff(diffObj, nil)
+			if err != nil {
+				return nil, err
+			}
+
+			result = append(result, DiffResult{
+				Object: obj,
+				Action: PruneAction,
+				Diff:   diff,
+			})
 		}
-
-		result = append(result, DiffResult{
-			Object: obj,
-			Action: PruneAction,
-			Diff:   diff,
-		})
 	}
 
 	for _, obj := range objects {
@@ -155,11 +187,8 @@ func SyncSSA(
 	ctx context.Context,
 	objects []Manifest,
 	config *rest.Config,
-	dryRun bool,
 	eventCh chan<- event.Event,
-	fieldManagerName string,
-	inventoryNamespace string,
-	inventoryName string,
+	ops SSAOptions,
 ) error {
 	dialer := kubernetes.NewDialer()
 	config.Dial = dialer.DialContext
@@ -170,13 +199,13 @@ func SyncSSA(
 		config.Dial = nil
 	}()
 
-	helpers, err := initHelpers(ctx, config, inventoryName, inventoryNamespace)
+	helpers, err := initHelpers(ctx, config, ops)
 	if err != nil {
 		return err
 	}
 
-	if !dryRun {
-		return applySSA(ctx, fieldManagerName, helpers, objects, eventCh, common.DryRunNone)
+	if !ops.DryRun {
+		return applySSA(ctx, helpers, objects, eventCh, common.DryRunNone, ops)
 	}
 
 	// Is a dry-run apply.
@@ -210,33 +239,40 @@ func SyncSSA(
 	}
 
 	if len(clientSideDryRunResources) > 0 {
-		err = applySSA(ctx, fieldManagerName, helpers, clientSideDryRunResources, eventCh, common.DryRunClient)
+		err = applySSA(ctx, helpers, clientSideDryRunResources, eventCh, common.DryRunClient, ops)
 		if err != nil {
 			return err
 		}
 	}
 
 	// Run even if there are no resources, as the prune check still needs to be done.
-	return applySSA(ctx, fieldManagerName, helpers, serverSideDryRunResources, eventCh, common.DryRunServer)
+	return applySSA(ctx, helpers, serverSideDryRunResources, eventCh, common.DryRunServer, ops)
 }
 
-func applySSA(ctx context.Context, fieldManagerName string, helpers syncHelpers, objects []Manifest, eventCh chan<- event.Event, dryRunStragedy common.DryRunStrategy) error {
+func applySSA(
+	ctx context.Context,
+	helpers syncHelpers,
+	objects []Manifest,
+	eventCh chan<- event.Event,
+	dryRunStragedy common.DryRunStrategy,
+	opts SSAOptions,
+) error {
 	applyOps := kubeapply.ApplierOptions{
-		ReconcileTimeout:       120 * time.Second,
+		ReconcileTimeout:       opts.ReconcileTimeout,
+		PruneTimeout:           opts.PruneTimeout,
 		EmitStatusEvents:       false,
-		InventoryPolicy:        inventory.PolicyAdoptIfNoInventory,
+		InventoryPolicy:        opts.InventoryPolicy,
 		ValidationPolicy:       validation.ExitEarly,
 		PrunePropagationPolicy: metav1.DeletePropagationBackground,
 		DryRunStrategy:         dryRunStragedy,
+		NoPrune:                opts.NoPrune,
 	}
 
 	if dryRunStragedy != common.DryRunClient {
 		applyOps.ServerSideOptions = common.ServerSideOptions{
 			ServerSideApply: true,
-			FieldManager:    fieldManagerName,
-
-			// ForceConflicts overwrites the fields when applying if the field manager differs.
-			ForceConflicts: false,
+			FieldManager:    opts.FieldManagerName,
+			ForceConflicts:  opts.ForceConflicts,
 		}
 	} else {
 		// Disable pruning on client side dry-run as we're running only a subset of the resources,
@@ -351,7 +387,7 @@ type syncHelpers struct {
 }
 
 // initHelpers initializes tools needed for syncing and ensures the inventory and it's namespace.
-func initHelpers(ctx context.Context, config *rest.Config, inventoryName string, inventoryNamespace string) (syncHelpers, error) {
+func initHelpers(ctx context.Context, config *rest.Config, ops SSAOptions) (syncHelpers, error) {
 	dynamicClient, mapper, err := initSyncHelpers(config)
 	if err != nil {
 		return syncHelpers{}, err
@@ -392,9 +428,9 @@ func initHelpers(ctx context.Context, config *rest.Config, inventoryName string,
 		return syncHelpers{}, err
 	}
 
-	inventoryInfo := inventory.NewSingleObjectInfo(inventory.ID(inventoryName), types.NamespacedName{Namespace: inventoryNamespace, Name: inventoryName})
+	inventoryInfo := inventory.NewSingleObjectInfo(inventory.ID(ops.InventoryName), types.NamespacedName{Namespace: ops.InventoryNamespace, Name: ops.InventoryName})
 
-	err = AssureInventoryNamespace(ctx, config, inventoryNamespace, dynamicClient)
+	err = AssureInventoryNamespace(ctx, config, ops.InventoryNamespace, dynamicClient)
 	if err != nil {
 		return syncHelpers{}, err
 	}

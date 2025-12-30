@@ -19,17 +19,14 @@ func SyncWithLogSSA(
 	ctx context.Context,
 	objects []Manifest,
 	config *rest.Config,
-	dryRun bool,
-	fieldManagerName string,
-	inventoryNamespace string,
-	inventoryName string,
+	ops SSAOptions,
 	logFunc func(string, ...any),
 ) error {
 	syncCh := make(chan event.Event)
 	errCh := make(chan error, 1)
 
 	go func() {
-		errCh <- SyncSSA(ctx, objects, config, dryRun, syncCh, fieldManagerName, inventoryNamespace, inventoryName)
+		errCh <- SyncSSA(ctx, objects, config, syncCh, ops)
 	}()
 
 	waitMsgPrintedObjects := []string{}
