@@ -14,7 +14,101 @@ import (
 	"github.com/siderolabs/go-kubernetes/kubernetes/manifests/event"
 )
 
-// SyncWithLogSSA applies the manifests to the cluster via ssa and logs the results via logFunc.
+// SyncAndDiffWithLogSSA prints the diff and then runs SyncWithLogSSA.
+func SyncAndDiffWithLogSSA(
+	ctx context.Context,
+	objects []Manifest,
+	config *rest.Config,
+	ops SSAOptions,
+	logFunc func(string, ...any),
+) error {
+	logFunc("comparing with live objects")
+
+	result, err := DiffSSA(ctx, objects, config, ops)
+	if err != nil {
+		return err
+	}
+
+	LogSSADiff(result, logFunc)
+
+	logFunc("applying manifests")
+
+	return SyncWithLogSSA(
+		ctx,
+		objects,
+		config,
+		ops,
+		logFunc,
+	)
+}
+
+// LogSSADiff logs the SSA diff results via logfunc in a human readable format.
+func LogSSADiff(result []DiffResult, logFunc func(string, ...any)) {
+	if len(result) == 0 {
+		logFunc("< no changes detected")
+	}
+
+	for _, r := range result {
+		objPath := FormatObjectPath(r.Object)
+
+		logFunc("< %s %s", r.Action, objPath)
+		logFunc("%s", r.Diff)
+	}
+}
+
+// FormatObjectPath returns the object path (e.g. "Deployment kube-system/my-deploy").
+func FormatObjectPath(object Manifest) string {
+	objPath := fmt.Sprintf("%s %s/%s", object.GroupVersionKind().Kind, object.GetNamespace(), object.GetName())
+	if object.GetNamespace() == "" {
+		objPath = fmt.Sprintf("%s %s", object.GroupVersionKind().Kind, object.GetName())
+	}
+
+	return objPath
+}
+
+// NewSyncEventLogger creates a new syncEventLogger, which is a helper to log incoming sync event via logFunc.
+func NewSyncEventLogger(logFunc func(string, ...any)) syncEventLogger {
+	return syncEventLogger{
+		logFunc: logFunc,
+	}
+}
+
+type syncEventLogger struct {
+	logFunc               func(string, ...any)
+	waitMsgPrintedObjects []string
+}
+
+// LogSyncEvent logs important incoming sync events in a human readable manner.
+func (sel *syncEventLogger) LogSyncEvent(e event.Event) {
+	objPath := fmt.Sprintf("%s %s/%s", e.ObjectID.GroupKind.Kind, e.ObjectID.Namespace, e.ObjectID.Name)
+	if e.ObjectID.Namespace == "" {
+		objPath = fmt.Sprintf("%s %s", e.ObjectID.GroupKind.Kind, e.ObjectID.Name)
+	}
+
+	if e.Type == event.RolloutType && e.Error == nil && !slices.Contains(sel.waitMsgPrintedObjects, objPath) {
+		// Skip printing successful rollout statuses unless a "waiting for" message was printed for them previously
+		// to reduce spam.
+		return
+	}
+
+	if e.Type == event.WaitType {
+		sel.logFunc("> waiting for %s", objPath)
+		sel.waitMsgPrintedObjects = append(sel.waitMsgPrintedObjects, objPath)
+
+		return
+	}
+
+	if e.Error != nil {
+		sel.logFunc("< %s of %s failed: %s", e.Type, objPath, e.Error.Error())
+	} else {
+		sel.logFunc("< %s of %s successful", e.Type, objPath)
+	}
+}
+
+func (sel *syncEventLogger) Reset() {
+	sel.waitMsgPrintedObjects = []string{}
+}
+
 func SyncWithLogSSA(
 	ctx context.Context,
 	objects []Manifest,
@@ -29,35 +123,13 @@ func SyncWithLogSSA(
 		errCh <- SyncSSA(ctx, objects, config, syncCh, ops)
 	}()
 
-	waitMsgPrintedObjects := []string{}
+	eventLogger := NewSyncEventLogger(logFunc)
 
 syncLoop:
 	for {
 		select {
 		case e := <-syncCh:
-			objPath := fmt.Sprintf("%s %s/%s", e.ObjectID.GroupKind.Kind, e.ObjectID.Namespace, e.ObjectID.Name)
-			if e.ObjectID.Namespace == "" {
-				objPath = fmt.Sprintf("%s %s", e.ObjectID.GroupKind.Kind, e.ObjectID.Name)
-			}
-
-			if e.Type == event.RolloutType && e.Error == nil && !slices.Contains(waitMsgPrintedObjects, objPath) {
-				// Skip printing successful rollout statuses unless a "waiting for" message was printed for them previously
-				// to reduce spam.
-				continue
-			}
-
-			if e.Type == event.WaitType {
-				logFunc("> waiting for %s", objPath)
-				waitMsgPrintedObjects = append(waitMsgPrintedObjects, objPath)
-
-				continue
-			}
-
-			if e.Error != nil {
-				logFunc("< %s of %s failed: %s", e.Type, objPath, e.Error.Error())
-			} else {
-				logFunc("< %s of %s successful", e.Type, objPath)
-			}
+			eventLogger.LogSyncEvent(e)
 
 		case err := <-errCh:
 			if err == nil {
