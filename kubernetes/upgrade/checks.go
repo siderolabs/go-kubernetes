@@ -301,6 +301,15 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 					"UserNamespacesHostNetworkSupport", // https://github.com/kubernetes/kubernetes/pull/132157
 				},
 			},
+			// https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/CHANGELOG-1.36.md
+			"1.35->1.36": {
+				// TODO: update this with the final list of removed items once the 1.36 release notes are published
+				removedFeatureGates: []string{
+					"CSIMigrationPortworx",                   // https://github.com/kubernetes/kubernetes/pull/135322
+					"InTreePluginPortworxUnregister",         // https://github.com/kubernetes/kubernetes/pull/135322
+					"WatchFromStorageWithoutResourceVersion", // https://github.com/kubernetes/kubernetes/pull/136066
+				},
+			},
 		},
 	}, nil
 }
