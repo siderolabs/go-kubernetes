@@ -2,6 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+// Package event defines the events emitted during the manifest sync process.
 package event
 
 import "sigs.k8s.io/cli-utils/pkg/object"

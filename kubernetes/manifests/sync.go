@@ -10,11 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hexops/gotextdiff"
-	"github.com/hexops/gotextdiff/myers"
-	"github.com/hexops/gotextdiff/span"
 	"github.com/siderolabs/gen/channel"
 	"github.com/siderolabs/go-retry/retry"
+	"github.com/siderolabs/talos/pkg/machinery/textdiff"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -254,12 +252,9 @@ func manifestDiff(a, b Manifest) (string, error) {
 		}
 	}
 
-	return computeDiff(path, string(ma), string(mb)), nil
+	return computeDiff(path, string(ma), string(mb))
 }
 
-func computeDiff(path string, a, b string) string {
-	edits := myers.ComputeEdits(span.URIFromPath(path), a, b)
-	diff := gotextdiff.ToUnified("a/"+path, "b/"+path, a, edits)
-
-	return fmt.Sprint(diff)
+func computeDiff(path string, a, b string) (string, error) {
+	return textdiff.DiffWithCustomPaths(a, b, "a/"+path, "b/"+path)
 }
