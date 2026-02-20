@@ -1,0 +1,8 @@
+--- a/v1.ConfigMap/default/i-was-pruned-configmap
++++ b/v1.ConfigMap/default/i-was-pruned-configmap
+@@ -1,5 +0,0 @@
+-apiVersion: ""
+-kind: ConfigMap
+-metadata:
+-  name: i-was-pruned-configmap
+-  namespace: default

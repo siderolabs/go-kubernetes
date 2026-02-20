@@ -14,6 +14,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/siderolabs/go-kubernetes/kubernetes"
+	"github.com/siderolabs/go-kubernetes/kubernetes/ssa"
 )
 
 // RolloutProgress indicates the current manifest rollout progress.
@@ -54,7 +55,7 @@ func waitForDeploymentsRollout(ctx context.Context, clientset *kubernetes.Client
 		if !channel.SendWithContext(ctx, resultCh,
 			RolloutProgress{
 				Object: obj,
-				Path:   getManifestPath(obj),
+				Path:   ssa.FormatObjectPathWithGV(obj),
 			}) {
 			return ctx.Err()
 		}
@@ -92,7 +93,7 @@ func waitForDaemonSetsRollout(ctx context.Context, clientset *kubernetes.Client,
 		if !channel.SendWithContext(ctx, resultCh,
 			RolloutProgress{
 				Object: obj,
-				Path:   getManifestPath(obj),
+				Path:   ssa.FormatObjectPathWithGV(obj),
 			}) {
 			return ctx.Err()
 		}
