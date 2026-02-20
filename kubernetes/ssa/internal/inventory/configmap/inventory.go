@@ -89,13 +89,6 @@ func (i *Inventory) ID() string {
 }
 
 func (i *Inventory) Read(ctx context.Context) (object.ObjMetadataSet, error) {
-	inv, err := i.client.Get(ctx, i.inv.Info(), inventory.GetOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch the inventory: %w", err)
-	}
-
-	i.inv = inv
-
 	return i.inv.GetObjectRefs(), nil
 }
 

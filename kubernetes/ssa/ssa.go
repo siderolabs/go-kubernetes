@@ -26,8 +26,6 @@ import (
 	"k8s.io/kubectl/pkg/util/openapi"
 	"k8s.io/kubectl/pkg/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/internal/inventory/configmap"
 )
 
 type InventoryBackedManager interface {
@@ -104,17 +102,7 @@ func NewManager(ctx context.Context, kubeconfig *rest.Config, fieldManagerName, 
 		return nil, err
 	}
 
-	err = configmap.AssureInventoryNamespace(ctx, inventoryNamespace, dynamicClient)
-	if err != nil {
-		return nil, err
-	}
-
-	factory := &factoryMock{
-		dynamicClient: dynamicClient,
-		mapper:        mapper,
-	}
-
-	inventory, err := configmap.NewInventory(ctx, inventoryNamespace, inventoryName, factory)
+	inventory, err := GetInventory(ctx, dynamicClient, mapper, inventoryNamespace, inventoryName)
 	if err != nil {
 		return nil, err
 	}

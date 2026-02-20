@@ -7,9 +7,14 @@ package ssa
 import (
 	"context"
 
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/cli-utils/pkg/object"
+
+	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/internal/inventory/configmap"
 )
 
+// InventoryAnnotationKey is the annotation key used to store the inventory ID in the applied objects.
 const InventoryAnnotationKey = "config.k8s.io/owning-inventory"
 
 // Inventory holds the previously applied manifests state.
@@ -24,4 +29,18 @@ type Inventory interface {
 	GetPruneObjs(context.Context, object.UnstructuredSet) (object.UnstructuredSet, error)
 	// Delete removes the inventory from the cluster.
 	Delete(context.Context) error
+}
+
+// GetInventory returns the inventory object for the given inventory ID.
+func GetInventory(ctx context.Context, dynamicClient *dynamic.DynamicClient, mapper meta.RESTMapper, inventoryNamespace, inventoryName string) (Inventory, error) {
+	if err := configmap.AssureInventoryNamespace(ctx, inventoryNamespace, dynamicClient); err != nil {
+		return nil, err
+	}
+
+	factory := &factoryMock{
+		dynamicClient: dynamicClient,
+		mapper:        mapper,
+	}
+
+	return configmap.NewInventory(ctx, inventoryNamespace, inventoryName, factory)
 }
