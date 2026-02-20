@@ -6,50 +6,41 @@
 package kubernetes
 
 import (
-	"fmt"
-	"net"
-	"time"
+	"net/http"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/util/connrotation"
 )
 
-// Client wraps the Kubernetes API client providing a way to force close all connections.
+// Client wraps the Kubernetes API client providing a way to close idle connections.
 type Client struct {
 	*kubernetes.Clientset
-
-	dialer *connrotation.Dialer
-}
-
-// NewDialer creates new custom dialer.
-func NewDialer() *connrotation.Dialer {
-	return connrotation.NewDialer((&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext)
+	httpClient *http.Client
 }
 
 // NewForConfig initializes and returns a client using the provided config.
 func NewForConfig(config *rest.Config) (*Client, error) {
-	if config.Dial != nil {
-		return nil, fmt.Errorf("dialer is already set")
+	// rest.HTTPClientFor builds the *http.Client with TLS + auth configured,
+	// going through the transport cache normally (stable cache key).
+	httpClient, err := rest.HTTPClientFor(config)
+	if err != nil {
+		return nil, err
 	}
 
-	dialer := NewDialer()
-	config.Dial = dialer.DialContext
-
-	clientset, err := kubernetes.NewForConfig(config)
+	clientset, err := kubernetes.NewForConfigAndClient(config, httpClient)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Client{
-		Clientset: clientset,
-		dialer:    dialer,
+		Clientset:  clientset,
+		httpClient: httpClient,
 	}, nil
 }
 
-// Close all connections.
+// Close closes idle connections.
 func (h *Client) Close() error {
-	h.dialer.CloseAll()
+	h.httpClient.CloseIdleConnections()
 
 	return nil
 }

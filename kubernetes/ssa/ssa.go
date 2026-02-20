@@ -7,19 +7,24 @@ package ssa
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/fluxcd/cli-utils/pkg/kstatus/polling"
 	"github.com/fluxcd/cli-utils/pkg/object"
 	"github.com/fluxcd/pkg/ssa"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
+	openapiclient "k8s.io/client-go/openapi"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
-	kubeutil "k8s.io/kubectl/pkg/cmd/util"
+	"k8s.io/kubectl/pkg/util/openapi"
+	"k8s.io/kubectl/pkg/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/internal/inventory/configmap"
@@ -40,6 +45,7 @@ type InventoryBackedManager interface {
 type Manager struct {
 	resourceManager ResourceManager
 	inventory       Inventory
+	httpClient      *http.Client
 }
 
 // ResourceManager performs SSA related tasks.
@@ -57,16 +63,22 @@ type ResourceManager interface {
 }
 
 // NewCustomManager creates a new manager with specified resource manager and inventory.
-func NewCustomManager(resourceManager ResourceManager, inventory Inventory) *Manager {
+func NewCustomManager(resourceManager ResourceManager, inventory Inventory, httpClient *http.Client) *Manager {
 	return &Manager{
 		resourceManager: resourceManager,
 		inventory:       inventory,
+		httpClient:      httpClient,
 	}
 }
 
 // NewManager creates a new ssa manager with default backing resource manager (fluxcd/ssa) and inventory (ConfigMap).
 func NewManager(ctx context.Context, kubeconfig *rest.Config, fieldManagerName, inventoryNamespace, inventoryName string) (*Manager, error) {
-	dc, err := discovery.NewDiscoveryClientForConfig(kubeconfig)
+	httpClient, err := rest.HTTPClientFor(kubeconfig)
+	if err != nil {
+		return nil, err
+	}
+
+	dc, err := discovery.NewDiscoveryClientForConfigAndClient(kubeconfig, httpClient)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +86,8 @@ func NewManager(ctx context.Context, kubeconfig *rest.Config, fieldManagerName, 
 	mapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(dc))
 
 	kubeClient, err := client.New(kubeconfig, client.Options{
-		Mapper: mapper,
+		HTTPClient: httpClient,
+		Mapper:     mapper,
 	})
 	if err != nil {
 		return nil, err
@@ -86,18 +99,7 @@ func NewManager(ctx context.Context, kubeconfig *rest.Config, fieldManagerName, 
 		Field: fieldManagerName,
 	})
 
-	cachedDC := memory.NewMemCacheClient(dc)
-
-	clientGetter := K8sRESTClientGetter{
-		RestConfig:      kubeconfig,
-		DiscoveryClient: cachedDC,
-		Mapper:          mapper,
-		ClientConfig:    nil,
-	}
-
-	factory := kubeutil.NewFactory(clientGetter)
-
-	dynamicClient, err := dynamic.NewForConfig(kubeconfig)
+	dynamicClient, err := dynamic.NewForConfigAndClient(kubeconfig, httpClient)
 	if err != nil {
 		return nil, err
 	}
@@ -107,34 +109,87 @@ func NewManager(ctx context.Context, kubeconfig *rest.Config, fieldManagerName, 
 		return nil, err
 	}
 
+	factory := &factoryMock{
+		dynamicClient: dynamicClient,
+		mapper:        mapper,
+	}
+
 	inventory, err := configmap.NewInventory(ctx, inventoryNamespace, inventoryName, factory)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewCustomManager(resourceManager, inventory), nil
+	return NewCustomManager(resourceManager, inventory, httpClient), nil
 }
 
-// K8sRESTClientGetter is a basic implementation of the kubernetes genericclioptions.RESTClientGetter.
-type K8sRESTClientGetter struct {
-	RestConfig      *rest.Config
-	DiscoveryClient discovery.CachedDiscoveryInterface
-	Mapper          meta.RESTMapper
-	ClientConfig    clientcmd.ClientConfig
+// Close performs any necessary cleanup, such as closing the HTTP connections.
+func (m *Manager) Close() {
+	if m.httpClient != nil {
+		m.httpClient.CloseIdleConnections()
+	}
 }
 
-func (getter K8sRESTClientGetter) ToRESTConfig() (*rest.Config, error) {
-	return getter.RestConfig, nil
+// factoryMock is a minimal implementation of kubeutil.Factory interface.
+//
+// It implements enough to satisfy the needs of the inventory implementation.
+// We do this to ensure that all clients created are using same HTTP client.
+type factoryMock struct {
+	dynamicClient dynamic.Interface
+	mapper        meta.RESTMapper
 }
 
-func (getter K8sRESTClientGetter) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
-	return getter.DiscoveryClient, nil
+func (mock *factoryMock) ToRESTConfig() (*rest.Config, error) {
+	panic("not implemented")
 }
 
-func (getter K8sRESTClientGetter) ToRESTMapper() (meta.RESTMapper, error) {
-	return getter.Mapper, nil
+func (mock *factoryMock) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
+	panic("not implemented")
 }
 
-func (getter K8sRESTClientGetter) ToRawKubeConfigLoader() clientcmd.ClientConfig {
-	return getter.ClientConfig
+func (mock *factoryMock) ToRESTMapper() (meta.RESTMapper, error) {
+	return mock.mapper, nil
+}
+
+func (mock *factoryMock) ToRawKubeConfigLoader() clientcmd.ClientConfig {
+	panic("not implemented")
+}
+
+func (mock *factoryMock) DynamicClient() (dynamic.Interface, error) {
+	return mock.dynamicClient, nil
+}
+
+func (mock *factoryMock) KubernetesClientSet() (*kubernetes.Clientset, error) {
+	panic("not implemented")
+}
+
+func (mock *factoryMock) RESTClient() (*rest.RESTClient, error) {
+	panic("not implemented")
+}
+
+func (mock *factoryMock) NewBuilder() *resource.Builder {
+	panic("not implemented")
+}
+
+func (mock *factoryMock) ClientForMapping(mapping *meta.RESTMapping) (resource.RESTClient, error) {
+	panic("not implemented")
+}
+
+func (mock *factoryMock) UnstructuredClientForMapping(mapping *meta.RESTMapping) (resource.RESTClient, error) {
+	panic("not implemented")
+}
+
+func (mock *factoryMock) Validator(validationDirective string) (validation.Schema, error) {
+	panic("not implemented")
+}
+
+func (mock *factoryMock) OpenAPIResourcesGetter() (openapi.OpenAPIResourcesGetter, error) {
+	panic("not implemented")
+}
+
+func (mock *factoryMock) OpenAPISchema() (openapi.Resources, error) {
+	panic("not implemented")
+}
+
+func (mock *factoryMock) OpenAPIV3Client() (openapiclient.Client, error) {
+	panic("not implemented")
 }

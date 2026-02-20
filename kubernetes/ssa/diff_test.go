@@ -28,7 +28,7 @@ func TestManager_Diff(t *testing.T) {
 	t.Run("CreateAction", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, inv)
+		manager := ssa.NewCustomManager(rm, inv, nil)
 
 		obj := &unstructured.Unstructured{
 			Object: map[string]any{
@@ -55,7 +55,7 @@ func TestManager_Diff(t *testing.T) {
 	t.Run("ModifyAction", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, inv)
+		manager := ssa.NewCustomManager(rm, inv, nil)
 
 		existingObj := &unstructured.Unstructured{
 			Object: map[string]any{
@@ -96,7 +96,7 @@ func TestManager_Diff(t *testing.T) {
 	t.Run("Unchanged", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, inv)
+		manager := ssa.NewCustomManager(rm, inv, nil)
 
 		obj := &unstructured.Unstructured{
 			Object: map[string]any{
@@ -129,7 +129,7 @@ func TestManager_Diff(t *testing.T) {
 	t.Run("PruneAction", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, inv)
+		manager := ssa.NewCustomManager(rm, inv, nil)
 
 		// Object in inventory but not in applied objects
 		pruneObj := &unstructured.Unstructured{
@@ -161,7 +161,7 @@ func TestManager_Diff(t *testing.T) {
 	t.Run("NoPrune_option", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, inv)
+		manager := ssa.NewCustomManager(rm, inv, nil)
 
 		pruneObj := &unstructured.Unstructured{
 			Object: map[string]any{
@@ -184,7 +184,7 @@ func TestManager_Diff(t *testing.T) {
 	t.Run("Diff_Render_Snapshot", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, inv)
+		manager := ssa.NewCustomManager(rm, inv, nil)
 
 		inputObject := &unstructured.Unstructured{
 			Object: map[string]any{

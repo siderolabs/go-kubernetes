@@ -25,7 +25,7 @@ import (
 func TestCreateAllNew(t *testing.T) {
 	rm := resourcemanager.NewMock()
 	inv := memory.NewInventory("test-inventory")
-	manager := ssa.NewCustomManager(rm, inv)
+	manager := ssa.NewCustomManager(rm, inv, nil)
 	obj := getConfigmapManifest("test-cm")
 
 	results, err := manager.Apply(t.Context(), []*unstructured.Unstructured{obj}, ssa.ApplyOptions{})
@@ -55,7 +55,7 @@ func (m brokenApplyResourceManager) ApplyAllStaged(ctx context.Context, objects 
 func TestApplyError(t *testing.T) {
 	rm := &brokenApplyResourceManager{}
 	inv := memory.NewInventory("test-inventory")
-	manager := ssa.NewCustomManager(rm, inv)
+	manager := ssa.NewCustomManager(rm, inv, nil)
 	obj1 := getConfigmapManifest("configmap1")
 	obj2 := getConfigmapManifest("configmap2")
 
@@ -72,7 +72,7 @@ func TestApplyError(t *testing.T) {
 func TestApplyError_No_Prune(t *testing.T) {
 	rm := &brokenApplyResourceManager{}
 	inv := memory.NewInventory("test-inventory")
-	manager := ssa.NewCustomManager(rm, inv)
+	manager := ssa.NewCustomManager(rm, inv, nil)
 	obj1 := getConfigmapManifest("configmap1")
 	obj2 := getConfigmapManifest("configmap2")
 	existingObj := getConfigmapManifest("prune-configmap")
@@ -94,7 +94,7 @@ func TestApplyError_No_Prune(t *testing.T) {
 func TestResultDiff(t *testing.T) {
 	rm := resourcemanager.NewMock()
 	inv := memory.NewInventory("test-inventory")
-	manager := ssa.NewCustomManager(rm, inv)
+	manager := ssa.NewCustomManager(rm, inv, nil)
 
 	existingObj := &unstructured.Unstructured{
 		Object: map[string]any{
@@ -178,7 +178,7 @@ func TestInventoryErrors(t *testing.T) {
 			Inventory: *memory.NewInventory("test-inventory"),
 			writeErr:  writeErr,
 		}
-		manager := ssa.NewCustomManager(rm, inv)
+		manager := ssa.NewCustomManager(rm, inv, nil)
 
 		obj := getConfigmapManifest("test-cm")
 
@@ -199,7 +199,7 @@ func TestInventoryErrors(t *testing.T) {
 			Inventory: *memory.NewInventory("test-inventory"),
 			writeErr:  writeErr,
 		}
-		manager := ssa.NewCustomManager(rm, inv)
+		manager := ssa.NewCustomManager(rm, inv, nil)
 
 		pruneObj := getConfigmapManifest("should-not-be-pruned")
 		// Seed existing object directly into the resource manager since broken inventory can't Write.
@@ -221,7 +221,7 @@ func TestInventoryErrors(t *testing.T) {
 			Inventory: *memory.NewInventory("test-inventory"),
 			readErr:   readErr,
 		}
-		manager := ssa.NewCustomManager(rm, inv)
+		manager := ssa.NewCustomManager(rm, inv, nil)
 
 		obj := getConfigmapManifest("test-cm")
 
@@ -241,7 +241,7 @@ func TestInventoryPolicy(t *testing.T) {
 		// annotation, regardless of the inventory policy.
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("my-inventory")
-		manager := ssa.NewCustomManager(rm, inv)
+		manager := ssa.NewCustomManager(rm, inv, nil)
 
 		obj := getConfigmapManifest("test-cm")
 		obj.SetAnnotations(map[string]string{
@@ -259,7 +259,7 @@ func TestInventoryPolicy(t *testing.T) {
 		// When one object fails the policy check, NO objects should be applied.
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("my-inventory")
-		manager := ssa.NewCustomManager(rm, inv)
+		manager := ssa.NewCustomManager(rm, inv, nil)
 
 		// This object exists in the cluster with a foreign annotation — will fail MustMatch.
 		foreignObj := getConfigmapManifest("foreign-cm")
@@ -284,7 +284,7 @@ func TestInventoryPolicy(t *testing.T) {
 	t.Run("policy_failure_prevents_pruning", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, inv)
+		manager := ssa.NewCustomManager(rm, inv, nil)
 		pruneObj := getConfigmapManifest("prune-cm")
 		pruneObj.SetAnnotations(map[string]string{inventory.OwningInventoryKey: "foreign-inventory"})
 
@@ -340,7 +340,7 @@ func TestApplyEdgeCases(t *testing.T) {
 		// Re-applying the same objects should not duplicate inventory entries.
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, inv)
+		manager := ssa.NewCustomManager(rm, inv, nil)
 
 		obj := getConfigmapManifest("test-cm")
 
@@ -368,7 +368,7 @@ func TestApplyEdgeCases(t *testing.T) {
 		// A non-NotFound error from Diff should abort Apply before any objects are applied.
 		rm := &brokenDiffResourceManager{}
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, inv)
+		manager := ssa.NewCustomManager(rm, inv, nil)
 
 		obj := getConfigmapManifest("test-cm")
 
@@ -386,7 +386,7 @@ func TestApplyEdgeCases(t *testing.T) {
 		// When Delete fails during pruning, the error should be returned without the change result.
 		rm := &brokenDeleteResourceManager{}
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, inv)
+		manager := ssa.NewCustomManager(rm, inv, nil)
 
 		pruneObj := getConfigmapManifest("old-cm")
 		setExistingObjects(t, &rm.Mock, inv, pruneObj)
@@ -408,7 +408,7 @@ func TestApplyEdgeCases(t *testing.T) {
 		// objects are still included in the results.
 		rm := resourcemanager.NewMock()
 		inv := &brokenGetPruneInventory{Inventory: *memory.NewInventory("test-inventory")}
-		manager := ssa.NewCustomManager(rm, inv)
+		manager := ssa.NewCustomManager(rm, inv, nil)
 
 		obj := getConfigmapManifest("test-cm")
 
@@ -424,7 +424,7 @@ func TestApplyEdgeCases(t *testing.T) {
 	t.Run("no_prune_option", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, inv)
+		manager := ssa.NewCustomManager(rm, inv, nil)
 
 		pruneObj := getConfigmapManifest("old-cm")
 		setExistingObjects(t, rm, inv, pruneObj)
