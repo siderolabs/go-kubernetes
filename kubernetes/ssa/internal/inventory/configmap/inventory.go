@@ -25,6 +25,7 @@ import (
 
 // Inventory is a ConfigMap-based implementation of the Inventory interface.
 type Inventory struct {
+	info      *inventory.SingleObjectInfo
 	inv       inventory.Inventory
 	client    inventory.Client
 	pruner    prune.Pruner
@@ -43,6 +44,8 @@ func NewInventory(ctx context.Context, namespace, name string, factory kubeutil.
 	}
 
 	inventoryInfo := inventory.NewSingleObjectInfo(inventory.ID(i.ID()), types.NamespacedName{Namespace: namespace, Name: name})
+
+	i.info = inventoryInfo
 
 	inventoryClient, err := inventory.ConfigMapClientFactory{StatusEnabled: true}.NewClient(factory)
 	if err != nil {
@@ -89,6 +92,18 @@ func (i *Inventory) ID() string {
 }
 
 func (i *Inventory) Read(ctx context.Context) (object.ObjMetadataSet, error) {
+	err := AssureInventory(ctx, i.client, i.info)
+	if err != nil {
+		return nil, err
+	}
+
+	inv, err := i.client.Get(ctx, i.inv.Info(), inventory.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch the inventory: %w", err)
+	}
+
+	i.inv = inv
+
 	return i.inv.GetObjectRefs(), nil
 }
 

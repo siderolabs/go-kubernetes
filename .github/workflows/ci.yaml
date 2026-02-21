@@ -1,6 +1,6 @@
 # THIS FILE WAS AUTOMATICALLY GENERATED, PLEASE DO NOT EDIT.
 #
-# Generated on 2026-02-18T13:22:48Z by kres 6458cfd.
+# Generated on 2026-02-21T10:36:48Z by kres 6458cfd.
 
 concurrency:
   group: ${{ github.head_ref || github.run_id }}
@@ -69,6 +69,9 @@ jobs:
       - name: base
         run: |
           make base
+      - name: integration-test
+        run: |
+          make integration-test
       - name: release-notes
         if: startsWith(github.ref, 'refs/tags/')
         run: |

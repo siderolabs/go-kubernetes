@@ -20,8 +20,8 @@ import (
 )
 
 type ApplyOptions struct {
-	// PrunePropagationPolicy configures the delete operation propagation policy.
-	PrunePropagationPolicy v1.DeletionPropagation
+	// DeletePropagationPolicy configures the delete operation propagation policy.
+	DeletePropagationPolicy v1.DeletionPropagation
 	// Policy defines if an inventory object can take over objects that belong to another inventory object or don't belong to any inventory object.
 	InventoryPolicy inventory.Policy
 	// WaitInterval defines the interval at which the engine polls for cluster
@@ -94,12 +94,7 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 	setDefaultOps(&ops)
 
 	for _, obj := range objects {
-		changeSet, inclusterObj, dryRunObject, err := m.diff(ctx, obj, DiffOptions{Force: ops.Force})
-		if err != nil {
-			return nil, err
-		}
-
-		diff, err := manifestDiff(inclusterObj, dryRunObject)
+		changeSet, diff, err := m.diff(ctx, obj, ops.Force, ops.InventoryPolicy)
 		if err != nil {
 			return nil, err
 		}
@@ -111,7 +106,7 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 			continue
 		}
 
-		_, err = inventory.CanApply(inventoryIDInfo{id: m.inventory.ID()}, inclusterObj, ops.InventoryPolicy)
+		_, err = inventory.CanApply(inventoryIDInfo{id: m.inventory.ID()}, obj, ops.InventoryPolicy)
 		if err != nil {
 			return nil, fmt.Errorf("inventory policy check failure for object %s, %w", changeSet.Subject, err)
 		}
@@ -225,8 +220,8 @@ func setDefaultOps(ops *ApplyOptions) {
 		ops.WaitTimeout = ssa.DefaultApplyOptions().WaitTimeout
 	}
 
-	if ops.PrunePropagationPolicy == "" {
-		ops.PrunePropagationPolicy = v1.DeletePropagationBackground
+	if ops.DeletePropagationPolicy == "" {
+		ops.DeletePropagationPolicy = v1.DeletePropagationBackground
 	}
 }
 

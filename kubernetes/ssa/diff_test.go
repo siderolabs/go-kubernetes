@@ -22,6 +22,9 @@ import (
 	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/internal/resourcemanager"
 )
 
+var updateSnapshots = os.Getenv("TEST_UPDATE_SNAPSHOT") == "true"
+
+// TODO: update tests to assert new DiffResult fields
 func TestManager_Diff(t *testing.T) {
 	ctx := context.Background()
 
@@ -49,7 +52,6 @@ func TestManager_Diff(t *testing.T) {
 		require.Len(t, results, 1)
 		assert.Equal(t, ssa.DiffCreatedAction, results[0].Action)
 		assert.Contains(t, results[0].Diff, "+  key: value")
-		assert.Equal(t, "test-cm", results[0].DryRunResultObject.GetName())
 	})
 
 	t.Run("ModifyAction", func(t *testing.T) {
@@ -65,7 +67,8 @@ func TestManager_Diff(t *testing.T) {
 					"name":      "test-cm",
 					"namespace": "default",
 					"annotations": map[string]any{
-						"key": "old-value",
+						"key":                      "old-value",
+						ssa.InventoryAnnotationKey: "other-inventory",
 					},
 				},
 			},
@@ -73,24 +76,20 @@ func TestManager_Diff(t *testing.T) {
 
 		setExistingObjects(t, rm, inv, existingObj)
 
-		newObj := existingObj.DeepCopy()
-		newObj.SetAnnotations(map[string]string{"key": "new-value"})
+		modifiedObj := existingObj.DeepCopy()
+		modifiedObj.SetAnnotations(map[string]string{"key": "new-value"})
 
 		// should fail inventory policy validation
-		results, err := manager.Diff(ctx, []*unstructured.Unstructured{}, ssa.DiffOptions{InventoryPolicy: inventory.PolicyMustMatch})
+		results, err := manager.Diff(ctx, []*unstructured.Unstructured{modifiedObj}, ssa.DiffOptions{InventoryPolicy: inventory.PolicyAdoptIfNoInventory})
 		require.ErrorContains(t, err, "inventory policy check failure")
 		require.Len(t, results, 0)
 
-		results, err = manager.Diff(ctx, []*unstructured.Unstructured{newObj}, ssa.DiffOptions{InventoryPolicy: inventory.PolicyAdoptIfNoInventory})
+		results, err = manager.Diff(ctx, []*unstructured.Unstructured{modifiedObj}, ssa.DiffOptions{InventoryPolicy: inventory.PolicyAdoptAll})
 		require.NoError(t, err)
 		require.Len(t, results, 1)
 		assert.Equal(t, ssa.DiffConfiguredAction, results[0].Action)
 		assert.Contains(t, results[0].Diff, "-    key: old-value")
 		assert.Contains(t, results[0].Diff, "+    key: new-value")
-		assert.Equal(t, map[string]string{
-			"key":                        "new-value",
-			inventory.OwningInventoryKey: "test-inventory",
-		}, results[0].DryRunResultObject.GetAnnotations())
 	})
 
 	t.Run("Unchanged", func(t *testing.T) {
@@ -122,7 +121,6 @@ func TestManager_Diff(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, results, 1)
 		assert.Equal(t, results[0].Action, ssa.DiffUnchangedAction)
-		assert.Equal(t, results[0].DryRunResultObject.GetName(), "test-cm")
 		assert.Equal(t, results[0].Diff, "", "diff should be empty for unchanged results")
 	})
 
@@ -155,7 +153,6 @@ func TestManager_Diff(t *testing.T) {
 
 		require.Len(t, results, 1)
 		assert.Equal(t, ssa.DiffPrunedAction, results[0].Action)
-		assert.Equal(t, "prune-cm", results[0].DryRunResultObject.GetName())
 	})
 
 	t.Run("NoPrune_option", func(t *testing.T) {
@@ -268,8 +265,6 @@ func getObjectMetadataSet(pruneObj *unstructured.Unstructured) object.ObjMetadat
 
 	return metaSet
 }
-
-var updateSnapshots = os.Getenv("UPDATE") == "true"
 
 func assertGoldenFile(t *testing.T, actual string, filename string) {
 	t.Helper()

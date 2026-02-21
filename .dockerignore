@@ -1,8 +1,9 @@
 # THIS FILE WAS AUTOMATICALLY GENERATED, PLEASE DO NOT EDIT.
 #
-# Generated on 2025-08-28T10:42:20Z by kres 4a927f7.
+# Generated on 2026-02-19T12:35:26Z by kres 6458cfd.
 
 *
+!internal
 !kubernetes
 !go.mod
 !go.sum

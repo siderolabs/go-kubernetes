@@ -40,9 +40,18 @@ const (
 // DiffResult is a diff result for one object.
 // In case of a Prune action the deleted object is set as the 'DryRunResultObject'.
 type DiffResult struct {
-	DryRunResultObject *unstructured.Unstructured
-	Action             DiffAction
-	Diff               string
+	// Action is the Diff action.
+	Action DiffAction
+	// Diff is the human readable string diff.
+	Diff string
+	// ObjMetadata holds the unique identifier of this entry.
+	ObjMetadata object.ObjMetadata
+
+	// GroupVersion holds the API group version of this entry.
+	GroupVersion string
+
+	// Subject represents the Object ID in the format 'kind/namespace/name'.
+	Subject string
 }
 
 // Diff does a server side apply dry-run and returns the resulting diff.
@@ -72,9 +81,8 @@ func (m *Manager) Diff(ctx context.Context, objects []*unstructured.Unstructured
 			}
 
 			result = append(result, DiffResult{
-				DryRunResultObject: obj,
-				Action:             DiffPrunedAction,
-				Diff:               diff,
+				Action: DiffPrunedAction,
+				Diff:   diff,
 			})
 		}
 	}
@@ -82,7 +90,7 @@ func (m *Manager) Diff(ctx context.Context, objects []*unstructured.Unstructured
 	for _, obj := range objects {
 		var action DiffAction
 
-		changeSet, inclusterObj, dryRunObject, err := m.diff(ctx, obj, ops)
+		changeSet, diff, err := m.diff(ctx, obj, ops.Force, ops.InventoryPolicy)
 		if err != nil {
 			return nil, err
 		}
@@ -98,51 +106,67 @@ func (m *Manager) Diff(ctx context.Context, objects []*unstructured.Unstructured
 			return nil, fmt.Errorf("unexpected %q result received from Diff function %s", changeSet.Action, changeSet.Subject)
 		}
 
-		diff, err := manifestDiff(inclusterObj, dryRunObject)
-		if err != nil {
-			return nil, err
-		}
-
 		result = append(result, DiffResult{
-			DryRunResultObject: dryRunObject,
-			Action:             action,
-			Diff:               diff,
+			Action:       action,
+			Diff:         diff,
+			ObjMetadata:  changeSet.ObjMetadata,
+			GroupVersion: changeSet.GroupVersion,
+			Subject:      changeSet.Subject,
 		})
-
-		// inventory conflict check (skip for to-be-created objects as there is no possibility of a conflict)
-		if action != DiffCreatedAction {
-			_, err = inventory.CanApply(inventoryIDInfo{id: m.inventory.ID()}, inclusterObj, ops.InventoryPolicy)
-			if err != nil {
-				return nil, fmt.Errorf("inventory policy check failure for object %s, %w", changeSet.Subject, err)
-			}
-		}
 	}
 
 	return result, nil
 }
 
-func (m *Manager) diff(ctx context.Context, obj *unstructured.Unstructured, ops DiffOptions) (*ssa.ChangeSetEntry, *unstructured.Unstructured, *unstructured.Unstructured, error) {
-	changeSet, inclusterObj, dryRunObject, err := m.resourceManager.Diff(ctx, obj, ssa.DiffOptions{Force: ops.Force})
+func (m *Manager) diff(ctx context.Context, inputObj *unstructured.Unstructured, force bool, invPolicy inventory.Policy) (*ssa.ChangeSetEntry, string, error) {
+	changeSet, inClusterObj, dryRunResult, err := m.resourceManager.Diff(ctx, inputObj, ssa.DiffOptions{Force: force})
 	if err != nil && (apierrors.IsNotFound(err) || strings.Contains(err.Error(), "not found")) {
 		if changeSet == nil {
 			changeSet = &ssa.ChangeSetEntry{
-				ObjMetadata:  object.UnstructuredToObjMetadata(obj),
-				GroupVersion: obj.GroupVersionKind().Version,
-				Subject:      FormatObjectPath(obj),
+				ObjMetadata:  object.UnstructuredToObjMetadata(inputObj),
+				GroupVersion: inputObj.GroupVersionKind().Version,
+				Subject:      FormatObjectPath(inputObj),
 			}
 		}
 
 		changeSet.Action = ssa.CreatedAction
 	} else if err != nil {
-		return nil, nil, nil, fmt.Errorf("apply dry run failed for %s: %w", FormatObjectPath(obj), err)
+		return nil, "", fmt.Errorf("apply dry run failed for %s: %w", FormatObjectPath(inputObj), err)
 	}
 
-	// sometimes no error is returned yet the dry-run result object is nil
-	if changeSet.Action == ssa.CreatedAction && dryRunObject == nil {
-		dryRunObject = obj.DeepCopy()
+	diff := ""
+
+	if changeSet.Action == ssa.CreatedAction {
+		diff, err = renderManifestDiff(nil, inputObj)
+		if err != nil {
+			return nil, "", err
+		}
 	}
 
-	return changeSet, inclusterObj, dryRunObject, nil
+	if changeSet.Action == ssa.ConfiguredAction {
+		diff, err = renderManifestDiff(inClusterObj, dryRunResult)
+		if err != nil {
+			return nil, "", err
+		}
+	}
+
+	// should never happen, but just in case
+	if changeSet.Action == ssa.DeletedAction {
+		diff, err = createDeletedDiff(inputObj)
+		if err != nil {
+			return nil, "", err
+		}
+	}
+
+	// inventory conflict check: only relevant for modified objects
+	if changeSet.Action == ssa.ConfiguredAction {
+		_, err = inventory.CanApply(inventoryIDInfo{id: m.inventory.ID()}, inClusterObj, invPolicy)
+		if err != nil {
+			return nil, "", fmt.Errorf("inventory policy check failure for object %s, %w", changeSet.Subject, err)
+		}
+	}
+
+	return changeSet, diff, nil
 }
 
 func createDeletedDiff(obj *unstructured.Unstructured) (string, error) {
@@ -150,7 +174,7 @@ func createDeletedDiff(obj *unstructured.Unstructured) (string, error) {
 	// remove managed fields as they're not really useful for the prune diff
 	diffObj.SetManagedFields(nil)
 
-	diff, err := manifestDiff(diffObj, nil)
+	diff, err := renderManifestDiff(diffObj, nil)
 	if err != nil {
 		return "", err
 	}
@@ -158,7 +182,7 @@ func createDeletedDiff(obj *unstructured.Unstructured) (string, error) {
 	return diff, nil
 }
 
-func manifestDiff(a, b *unstructured.Unstructured) (string, error) {
+func renderManifestDiff(a, b *unstructured.Unstructured) (string, error) {
 	var (
 		ma, mb []byte
 		path   string
