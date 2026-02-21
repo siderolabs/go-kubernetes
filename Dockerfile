@@ -2,7 +2,7 @@
 
 # THIS FILE WAS AUTOMATICALLY GENERATED, PLEASE DO NOT EDIT.
 #
-# Generated on 2026-02-18T13:22:48Z by kres 6458cfd.
+# Generated on 2026-02-19T12:35:26Z by kres 6458cfd.
 
 ARG TOOLCHAIN=scratch
 
@@ -51,8 +51,41 @@ COPY go.sum go.sum
 RUN cd .
 RUN --mount=type=cache,target=/go/pkg,id=go-kubernetes/go/pkg go mod download
 RUN --mount=type=cache,target=/go/pkg,id=go-kubernetes/go/pkg go mod verify
+COPY ./internal ./internal
 COPY ./kubernetes ./kubernetes
 RUN --mount=type=cache,target=/go/pkg,id=go-kubernetes/go/pkg go list -mod=readonly all >/dev/null
+
+# builds integration-test-darwin-amd64
+FROM base AS integration-test-darwin-amd64-build
+COPY --from=generate / /
+WORKDIR /src/internal/integration
+ARG GO_BUILDFLAGS
+ARG GO_LDFLAGS
+RUN --mount=type=cache,target=/root/.cache/go-build,id=go-kubernetes/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=go-kubernetes/go/pkg GOARCH=amd64 GOOS=darwin go test -c -covermode=atomic -coverpkg=github.com/siderolabs/go-kubernetes/... -tags integration,sidero.debug -ldflags "${GO_LDFLAGS}" -o /integration-test-darwin-amd64
+
+# builds integration-test-darwin-arm64
+FROM base AS integration-test-darwin-arm64-build
+COPY --from=generate / /
+WORKDIR /src/internal/integration
+ARG GO_BUILDFLAGS
+ARG GO_LDFLAGS
+RUN --mount=type=cache,target=/root/.cache/go-build,id=go-kubernetes/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=go-kubernetes/go/pkg GOARCH=arm64 GOOS=darwin go test -c -covermode=atomic -coverpkg=github.com/siderolabs/go-kubernetes/... -tags integration,sidero.debug -ldflags "${GO_LDFLAGS}" -o /integration-test-darwin-arm64
+
+# builds integration-test-linux-amd64
+FROM base AS integration-test-linux-amd64-build
+COPY --from=generate / /
+WORKDIR /src/internal/integration
+ARG GO_BUILDFLAGS
+ARG GO_LDFLAGS
+RUN --mount=type=cache,target=/root/.cache/go-build,id=go-kubernetes/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=go-kubernetes/go/pkg GOARCH=amd64 GOOS=linux go test -c -covermode=atomic -coverpkg=github.com/siderolabs/go-kubernetes/... -tags integration,sidero.debug -ldflags "${GO_LDFLAGS}" -o /integration-test-linux-amd64
+
+# builds integration-test-linux-arm64
+FROM base AS integration-test-linux-arm64-build
+COPY --from=generate / /
+WORKDIR /src/internal/integration
+ARG GO_BUILDFLAGS
+ARG GO_LDFLAGS
+RUN --mount=type=cache,target=/root/.cache/go-build,id=go-kubernetes/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=go-kubernetes/go/pkg GOARCH=arm64 GOOS=linux go test -c -covermode=atomic -coverpkg=github.com/siderolabs/go-kubernetes/... -tags integration,sidero.debug -ldflags "${GO_LDFLAGS}" -o /integration-test-linux-arm64
 
 # runs gofumpt
 FROM base AS lint-gofumpt
@@ -91,10 +124,30 @@ WORKDIR /src
 ARG TESTPKGS
 RUN --mount=type=cache,target=/root/.cache/go-build,id=go-kubernetes/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=go-kubernetes/go/pkg --mount=type=cache,target=/tmp,id=go-kubernetes/tmp go test -covermode=atomic -coverprofile=coverage.txt -coverpkg=${TESTPKGS} ${TESTPKGS}
 
+FROM scratch AS integration-test-darwin-amd64
+COPY --from=integration-test-darwin-amd64-build /integration-test-darwin-amd64 /integration-test-darwin-amd64
+
+FROM scratch AS integration-test-darwin-arm64
+COPY --from=integration-test-darwin-arm64-build /integration-test-darwin-arm64 /integration-test-darwin-arm64
+
+FROM scratch AS integration-test-linux-amd64
+COPY --from=integration-test-linux-amd64-build /integration-test-linux-amd64 /integration-test-linux-amd64
+
+FROM scratch AS integration-test-linux-arm64
+COPY --from=integration-test-linux-arm64-build /integration-test-linux-arm64 /integration-test-linux-arm64
+
 # clean golangci-lint fmt output
 FROM scratch AS lint-golangci-lint-fmt
 COPY --from=lint-golangci-lint-fmt-run /src .
 
 FROM scratch AS unit-tests
 COPY --from=unit-tests-run /src/coverage.txt /coverage-unit-tests.txt
+
+FROM integration-test-linux-${TARGETARCH} AS integration-test
+
+FROM scratch AS integration-test-all
+COPY --from=integration-test-darwin-amd64 / /
+COPY --from=integration-test-darwin-arm64 / /
+COPY --from=integration-test-linux-amd64 / /
+COPY --from=integration-test-linux-arm64 / /
 

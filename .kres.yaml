@@ -2,3 +2,97 @@
 kind: service.CodeCov
 spec:
   targetThreshold: 35
+---
+kind: auto.IntegrationTests
+spec:
+  tests:
+    - path: internal/integration
+      name: integration-test
+      enableDockerImage: false
+      outputs:
+        linux-amd64:
+          GOOS: linux
+          GOARCH: amd64
+        linux-arm64:
+          GOOS: linux
+          GOARCH: arm64
+        darwin-amd64:
+          GOOS: darwin
+          GOARCH: amd64
+        darwin-arm64:
+          GOOS: darwin
+          GOARCH: arm64
+---
+kind: auto.CustomSteps
+spec:
+  steps:
+    - name: k8s-up
+      toplevel: true
+    - name: k8s-down
+      toplevel: true
+    - name: run-integration-test
+      toplevel: true
+    - name: talosctl
+      toplevel: true
+---
+kind: custom.Step
+name: talosctl
+spec:
+  makefile:
+    enabled: true
+    phony: true
+    depends:
+      - $(ARTIFACTS)
+    variables:
+      - name: GOOS
+        defaultValue: $(shell uname -s | tr "[:upper:]" "[:lower:]")
+      - name: TALOS_VERSION
+        defaultValue: latest
+    script:
+      - |
+        curl -Lo $(ARTIFACTS)/talosctl https://github.com/siderolabs/talos/releases/$(TALOS_VERSION)/download/talosctl-$(GOOS)-$(GOARCH)
+        chmod +x $(ARTIFACTS)/talosctl
+---
+kind: custom.Step
+name: k8s-up
+spec:
+  makefile:
+    enabled: true
+    phony: true
+    depends:
+      - $(ARTIFACTS)
+    script:
+      - |
+        $(ARTIFACTS)/talosctl cluster create docker \
+            --name=go-kubernetes-integration-test \
+            --talosconfig-destination=$(ARTIFACTS)/talosconfig \
+            --mtu=1450
+        $(ARTIFACTS)/talosctl kubeconfig $(ARTIFACTS)/kubeconfig \
+            --talosconfig=$(ARTIFACTS)/talosconfig \
+            --nodes=10.5.0.2 \
+            --force
+---
+kind: custom.Step
+name: k8s-down
+spec:
+  makefile:
+    enabled: true
+    phony: true
+    script:
+      - |
+        $(ARTIFACTS)/talosctl cluster destroy \
+            --name=go-kubernetes-integration-test 
+        rm -f $(ARTIFACTS)/talosconfig $(ARTIFACTS)/kubeconfig
+---
+kind: custom.Step
+name: run-integration-test
+spec:
+  makefile:
+    enabled: true
+    depends:
+    variables:
+      - name: TEST_SKIP_CLEANUP
+        defaultValue: true
+    script:
+      - "@$(MAKE) k8s-down"
+
