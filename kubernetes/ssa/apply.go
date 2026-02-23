@@ -21,10 +21,10 @@ import (
 
 // ApplyOptions defines the options for the Apply method.
 type ApplyOptions struct {
-	// PrunePropagationPolicy configures the delete operation propagation policy.
-	PrunePropagationPolicy v1.DeletionPropagation
 	// InventoryPolicy defines if an inventory object can take over objects that belong to another inventory object or don't belong to any inventory object.
 	InventoryPolicy InventoryPolicy
+	// DeletePropagationPolicy configures the delete operation propagation policy.
+	DeletePropagationPolicy v1.DeletionPropagation
 	// WaitInterval defines the interval at which the engine polls for cluster
 	// scoped resources to reach their final state.
 	WaitInterval time.Duration
@@ -100,27 +100,12 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 	setDefaultOps(&ops)
 
 	for _, obj := range objects {
-		changeSet, inclusterObj, dryRunObject, diffErr := m.diff(ctx, obj, DiffOptions{Force: ops.Force})
-		if diffErr != nil {
-			return nil, diffErr
-		}
-
-		diff, diffErr := manifestDiff(inclusterObj, dryRunObject)
+		_, diff, diffErr := m.diff(ctx, obj, ops.Force, ops.InventoryPolicy, inv.ID())
 		if diffErr != nil {
 			return nil, diffErr
 		}
 
 		changeMap[FormatObjectPathWithGV(obj)].Diff = diff
-
-		// only perform the inventory policy check for modified actions as that's the only conflict possibility
-		if changeSet.Action != ssa.ConfiguredAction {
-			continue
-		}
-
-		err = checkInventoryPolicy(inv.ID(), inclusterObj, ops.InventoryPolicy)
-		if err != nil {
-			return nil, invPolicyFailureErr(obj, err)
-		}
 	}
 
 	changeSet, applyErr := m.resourceManager.ApplyAllStaged(ctx, objects, ssa.ApplyOptions{
@@ -275,8 +260,8 @@ func setDefaultOps(ops *ApplyOptions) {
 		ops.WaitTimeout = ssa.DefaultApplyOptions().WaitTimeout
 	}
 
-	if ops.PrunePropagationPolicy == "" {
-		ops.PrunePropagationPolicy = v1.DeletePropagationBackground
+	if ops.DeletePropagationPolicy == "" {
+		ops.DeletePropagationPolicy = v1.DeletePropagationBackground
 	}
 
 	if ops.InventoryPolicy == "" {

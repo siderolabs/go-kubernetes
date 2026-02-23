@@ -17,6 +17,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/siderolabs/go-kubernetes/kubernetes/ssa"
@@ -26,6 +27,17 @@ import (
 func getKubernetesClient(t *testing.T) *kubernetes.Clientset {
 	t.Helper()
 
+	config := getKubeconfig(t)
+
+	k8sClient, err := kubernetes.NewForConfig(config)
+	require.NoError(t, err)
+
+	return k8sClient
+}
+
+func getKubeconfig(t *testing.T) *rest.Config {
+	t.Helper()
+
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 
 	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, nil).ClientConfig()
@@ -33,10 +45,7 @@ func getKubernetesClient(t *testing.T) *kubernetes.Clientset {
 		t.Skip("skipping test since Kubernetes client configuration is not available")
 	}
 
-	k8sClient, err := kubernetes.NewForConfig(config)
-	require.NoError(t, err)
-
-	return k8sClient
+	return config
 }
 
 func getTestNamespace(t *testing.T, client *kubernetes.Clientset) string {

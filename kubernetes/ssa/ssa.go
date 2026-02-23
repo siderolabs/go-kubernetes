@@ -7,11 +7,13 @@ package ssa
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/fluxcd/cli-utils/pkg/kstatus/polling"
 	"github.com/fluxcd/cli-utils/pkg/object"
 	"github.com/fluxcd/pkg/ssa"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
@@ -109,6 +111,7 @@ func NewManager(ctx context.Context, kubeconfig *rest.Config, fieldManagerName, 
 			Field: fieldManagerName,
 		}),
 		kubeClient: kubeClient,
+		mapper:     mapper,
 	}
 
 	return NewCustomManager(resourceManager, inventoryFactory, httpClient), nil
@@ -123,6 +126,7 @@ func (m *Manager) Close() {
 
 type resourceManagerWithGet struct {
 	kubeClient client.Client
+	mapper     meta.RESTMapper
 
 	ssa.ResourceManager
 }
@@ -130,7 +134,14 @@ type resourceManagerWithGet struct {
 func (r *resourceManagerWithGet) Get(ctx context.Context, objMeta object.ObjMetadata) (*unstructured.Unstructured, error) {
 	obj := &unstructured.Unstructured{}
 
-	err := r.kubeClient.Get(ctx, client.ObjectKey{
+	mapping, err := r.mapper.RESTMapping(objMeta.GroupKind)
+	if err != nil {
+		return nil, fmt.Errorf("failed to map kind %q to a supported version: %w", objMeta.GroupKind, err)
+	}
+
+	obj.SetGroupVersionKind(mapping.GroupVersionKind)
+
+	err = r.kubeClient.Get(ctx, client.ObjectKey{
 		Namespace: objMeta.Namespace,
 		Name:      objMeta.Name,
 	}, obj)

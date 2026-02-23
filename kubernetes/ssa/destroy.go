@@ -16,11 +16,20 @@ import (
 	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/object"
 )
 
+type DestroyOptions struct {
+	// DeletePropagationPolicy configures the delete operation propagation policy.
+	DeletePropagationPolicy metav1.DeletionPropagation
+}
+
 // Destroy removes all objects stored in the inventory from the cluster and then removes the inventory itself.
-func (m *Manager) Destroy(ctx context.Context) error {
+func (m *Manager) Destroy(ctx context.Context, ops DestroyOptions) error {
 	inv, err := m.inventory(ctx)
 	if err != nil {
 		return err
+	}
+
+	if ops.DeletePropagationPolicy == "" {
+		ops.DeletePropagationPolicy = metav1.DeletePropagationBackground
 	}
 
 	allInvObjects := inv.Get()
@@ -37,7 +46,7 @@ func (m *Manager) Destroy(ctx context.Context) error {
 			return fmt.Errorf("failed to get object %s, %w", FormatMetaPath(objMeta), err)
 		}
 
-		_, err = m.resourceManager.Delete(ctx, obj, ssa.DeleteOptions{PropagationPolicy: metav1.DeletePropagationBackground})
+		_, err = m.resourceManager.Delete(ctx, obj, ssa.DeleteOptions{PropagationPolicy: ops.DeletePropagationPolicy})
 		if err != nil {
 			return err
 		}
