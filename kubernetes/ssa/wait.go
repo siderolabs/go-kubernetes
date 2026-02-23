@@ -11,6 +11,10 @@ import (
 	"github.com/fluxcd/pkg/ssa"
 )
 
-func (m *Manager) Wait(ctx context.Context, set object.ObjMetadataSet, opts ssa.WaitOptions) error {
+// WaitOptions contains options for wait requests.
+type WaitOptions = ssa.WaitOptions
+
+// Wait checks if the given set of objects has been fully reconciled.
+func (m *Manager) Wait(ctx context.Context, set object.ObjMetadataSet, opts WaitOptions) error {
 	return m.resourceManager.WaitForSetWithContext(ctx, set, opts)
 }

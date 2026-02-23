@@ -46,6 +46,18 @@ func NewMock() *Mock {
 	}
 }
 
+func (m *Mock) Get(ctx context.Context, meta object.ObjMetadata) (*unstructured.Unstructured, error) {
+	obj := m.objects[objKey{Group: meta.GroupKind.Group, Kind: meta.GroupKind.Kind, Namespace: meta.Namespace, Name: meta.Name}]
+	if obj == nil {
+		return nil, apierrors.NewNotFound(schema.GroupResource{
+			Group:    meta.GroupKind.Group,
+			Resource: meta.GroupKind.Kind,
+		}, meta.Name)
+	}
+
+	return obj.DeepCopy(), nil
+}
+
 // SetObjects pre-populates the store with the given objects.
 func (m *Mock) SetObjects(objects ...*unstructured.Unstructured) {
 	if m.objects == nil {

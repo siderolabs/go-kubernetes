@@ -14,17 +14,17 @@ import (
 	"github.com/siderolabs/talos/pkg/machinery/textdiff"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"sigs.k8s.io/cli-utils/pkg/inventory"
 	k8syaml "sigs.k8s.io/yaml"
 )
 
+// DiffOptions defines the options for the Diff method.
 type DiffOptions struct {
+	// Policy defines if an inventory object can take over objects that belong to another inventory object or don't belong to any inventory object.
+	InventoryPolicy InventoryPolicy
 	// NoPrune defines whether pruning of previously applied objects should occur.
 	NoPrune bool
 	// Force configures the engine to recreate objects that contain immutable field changes.
 	Force bool
-	// Policy defines if an inventory object can take over objects that belong to another inventory object or don't belong to any inventory object.
-	InventoryPolicy inventory.Policy
 }
 
 // DiffAction are a subset of actions that are returned by the Diff method.
@@ -49,20 +49,32 @@ type DiffResult struct {
 func (m *Manager) Diff(ctx context.Context, objects []*unstructured.Unstructured, ops DiffOptions) ([]DiffResult, error) {
 	result := []DiffResult{}
 
-	if err := m.prepareObjects(objects); err != nil {
-		return nil, err
-	}
-
-	pruneObjs, err := m.inventory.GetPruneObjs(ctx, objects)
+	inv, err := m.inventory(ctx)
 	if err != nil {
 		return nil, err
 	}
 
+	if err := m.prepareObjects(objects, inv.ID()); err != nil {
+		return nil, err
+	}
+
 	if !ops.NoPrune {
-		for _, obj := range pruneObjs {
-			_, err = inventory.CanApply(inventoryIDInfo{id: m.inventory.ID()}, obj, ops.InventoryPolicy)
+		pruneObjRefs := calculatePruneObjects(inv.Get(), objects)
+
+		for _, objMeta := range pruneObjRefs {
+			obj, err := m.resourceManager.Get(ctx, objMeta)
 			if err != nil {
-				return nil, fmt.Errorf("inventory policy check failure for object %s, %w", FormatObjectPath(obj), err)
+				if apierrors.IsNotFound(err) {
+					// object doesn't exist in the cluster so it can be skipped
+					continue
+				}
+
+				return nil, fmt.Errorf("failed to get object %s, %w", FormatMetaPath(objMeta), err)
+			}
+
+			err = checkInventoryPolicy(inv.ID(), obj, ops.InventoryPolicy)
+			if err != nil {
+				return nil, invPolicyFailureErr(obj, err)
 			}
 
 			// create a "deleted" diff
@@ -111,9 +123,9 @@ func (m *Manager) Diff(ctx context.Context, objects []*unstructured.Unstructured
 
 		// inventory conflict check (skip for to-be-created objects as there is no possibility of a conflict)
 		if action != DiffCreatedAction {
-			_, err = inventory.CanApply(inventoryIDInfo{id: m.inventory.ID()}, inclusterObj, ops.InventoryPolicy)
+			err = checkInventoryPolicy(inv.ID(), obj, ops.InventoryPolicy)
 			if err != nil {
-				return nil, fmt.Errorf("inventory policy check failure for object %s, %w", changeSet.Subject, err)
+				return nil, invPolicyFailureErr(obj, err)
 			}
 		}
 	}

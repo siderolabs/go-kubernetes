@@ -8,9 +8,7 @@ package memory
 import (
 	"context"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"sigs.k8s.io/cli-utils/pkg/object"
+	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/object"
 )
 
 // Inventory is an in-memory implementation of ssa.Inventory for unit tests.
@@ -28,48 +26,19 @@ func (i *Inventory) ID() string {
 	return i.id
 }
 
-func (i *Inventory) Read(_ context.Context) (object.ObjMetadataSet, error) {
-	return i.refs, nil
+func (i *Inventory) Get() object.ObjMetadataSet {
+	return i.refs
 }
 
-func (i *Inventory) Write(_ context.Context, refs object.ObjMetadataSet) error {
+func (i *Inventory) Update(refs object.ObjMetadataSet) {
 	i.refs = refs
+}
 
+func (i *Inventory) Write(context.Context) error {
 	return nil
 }
 
-func (i *Inventory) GetPruneObjs(_ context.Context, objects object.UnstructuredSet) (object.UnstructuredSet, error) {
-	currentMetas := make(object.ObjMetadataSet, 0, len(objects))
-	for _, obj := range objects {
-		currentMetas = append(currentMetas, object.ObjMetadata{
-			Namespace: obj.GetNamespace(),
-			Name:      obj.GetName(),
-			GroupKind: obj.GroupVersionKind().GroupKind(),
-		})
-	}
-
-	var pruneObjs object.UnstructuredSet
-
-	for _, ref := range i.refs {
-		if currentMetas.Contains(ref) {
-			continue
-		}
-
-		obj := &unstructured.Unstructured{}
-		obj.SetGroupVersionKind(schema.GroupVersionKind{
-			Group: ref.GroupKind.Group,
-			Kind:  ref.GroupKind.Kind,
-		})
-		obj.SetNamespace(ref.Namespace)
-		obj.SetName(ref.Name)
-
-		pruneObjs = append(pruneObjs, obj)
-	}
-
-	return pruneObjs, nil
-}
-
-func (i *Inventory) Delete(_ context.Context) error {
+func (i *Inventory) Delete(context.Context) error {
 	i.refs = nil
 
 	return nil

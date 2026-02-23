@@ -6,20 +6,37 @@ package ssa
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/fluxcd/pkg/ssa"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/cli-utils/pkg/object"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
+	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/object"
 )
 
 // Destroy removes all objects stored in the inventory from the cluster and then removes the inventory itself.
 func (m *Manager) Destroy(ctx context.Context) error {
-	allObjects, err := m.inventory.GetPruneObjs(ctx, nil)
+	inv, err := m.inventory(ctx)
 	if err != nil {
 		return err
 	}
 
-	for _, obj := range allObjects {
+	allInvObjects := inv.Get()
+
+	for _, objMeta := range allInvObjects {
+		var obj *unstructured.Unstructured
+
+		obj, err = m.resourceManager.Get(ctx, objMeta)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+
+			return fmt.Errorf("failed to get object %s, %w", FormatMetaPath(objMeta), err)
+		}
+
 		_, err = m.resourceManager.Delete(ctx, obj, ssa.DeleteOptions{PropagationPolicy: metav1.DeletePropagationBackground})
 		if err != nil {
 			return err
@@ -27,12 +44,14 @@ func (m *Manager) Destroy(ctx context.Context) error {
 	}
 
 	// Empty the inventory to reflect cluster state even if the delete operation should fail.
-	err = m.inventory.Write(ctx, object.ObjMetadataSet{})
+	inv.Update(object.ObjMetadataSet{})
+
+	err = inv.Write(ctx)
 	if err != nil {
 		return err
 	}
 
-	err = m.inventory.Delete(ctx)
+	err = inv.Delete(ctx)
 	if err != nil {
 		return err
 	}

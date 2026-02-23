@@ -7,11 +7,10 @@ package ssa
 import (
 	"context"
 
-	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/client-go/dynamic"
-	"sigs.k8s.io/cli-utils/pkg/object"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/internal/inventory/configmap"
+	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/object"
 )
 
 // InventoryAnnotationKey is the annotation key used to store the inventory ID in the applied objects.
@@ -21,26 +20,21 @@ const InventoryAnnotationKey = "config.k8s.io/owning-inventory"
 type Inventory interface {
 	// ID returns the inventory identifier.
 	ID() string
-	// Read returns the list of object references tracked in the inventory
-	Read(context.Context) (object.ObjMetadataSet, error)
-	// Write writes the inventory.
-	Write(context.Context, object.ObjMetadataSet) error
-	// GetPruneObjs returns the objects that should be pruned.
-	GetPruneObjs(context.Context, object.UnstructuredSet) (object.UnstructuredSet, error)
+	// Get returns the list of object references tracked in the inventory.
+	Get() object.ObjMetadataSet
+	// Update updates the inventory with the given set of object references.
+	Update(object.ObjMetadataSet)
+	// Write writes the inventory to the cluster.
+	Write(context.Context) error
 	// Delete removes the inventory from the cluster.
 	Delete(context.Context) error
 }
 
-// GetInventory returns the inventory object for the given inventory ID.
-func GetInventory(ctx context.Context, dynamicClient *dynamic.DynamicClient, mapper meta.RESTMapper, inventoryNamespace, inventoryName string) (Inventory, error) {
-	if err := configmap.AssureInventoryNamespace(ctx, inventoryNamespace, dynamicClient); err != nil {
+// GetInventory returns the inventory object for the given inventory ID creating it if it doesn't exist.
+func GetInventory(ctx context.Context, k8sClient *kubernetes.Clientset, inventoryNamespace, inventoryName string) (Inventory, error) {
+	if err := configmap.AssureInventoryNamespace(ctx, k8sClient, inventoryNamespace); err != nil {
 		return nil, err
 	}
 
-	factory := &factoryMock{
-		dynamicClient: dynamicClient,
-		mapper:        mapper,
-	}
-
-	return configmap.NewInventory(ctx, inventoryNamespace, inventoryName, factory)
+	return configmap.NewInventory(ctx, k8sClient, inventoryNamespace, inventoryName)
 }

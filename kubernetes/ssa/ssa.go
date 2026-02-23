@@ -12,19 +12,12 @@ import (
 	"github.com/fluxcd/cli-utils/pkg/kstatus/polling"
 	"github.com/fluxcd/cli-utils/pkg/object"
 	"github.com/fluxcd/pkg/ssa"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
-	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
-	openapiclient "k8s.io/client-go/openapi"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
-	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/kubectl/pkg/util/openapi"
-	"k8s.io/kubectl/pkg/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -39,11 +32,19 @@ type InventoryBackedManager interface {
 	Wait(ctx context.Context, set object.ObjMetadataSet, opts ssa.WaitOptions) error
 }
 
+// InventoryFactory creates inventory objects.
+type InventoryFactory func(ctx context.Context) (Inventory, error)
+
 // Manager is the default Manager implementation.
 type Manager struct {
-	resourceManager ResourceManager
-	inventory       Inventory
-	httpClient      *http.Client
+	resourceManager  ResourceManager
+	inventoryFactory InventoryFactory
+	httpClient       *http.Client
+}
+
+// inventory returns the inventory object for the manager.
+func (m *Manager) inventory(ctx context.Context) (Inventory, error) {
+	return m.inventoryFactory(ctx)
 }
 
 // ResourceManager performs SSA related tasks.
@@ -58,14 +59,15 @@ type ResourceManager interface {
 		dryRunObject *unstructured.Unstructured,
 		err error)
 	WaitForSetWithContext(ctx context.Context, set object.ObjMetadataSet, opts ssa.WaitOptions) error
+	Get(ctx context.Context, objMeta object.ObjMetadata) (*unstructured.Unstructured, error)
 }
 
 // NewCustomManager creates a new manager with specified resource manager and inventory.
-func NewCustomManager(resourceManager ResourceManager, inventory Inventory, httpClient *http.Client) *Manager {
+func NewCustomManager(resourceManager ResourceManager, inventoryFactory InventoryFactory, httpClient *http.Client) *Manager {
 	return &Manager{
-		resourceManager: resourceManager,
-		inventory:       inventory,
-		httpClient:      httpClient,
+		resourceManager:  resourceManager,
+		inventoryFactory: inventoryFactory,
+		httpClient:       httpClient,
 	}
 }
 
@@ -93,21 +95,23 @@ func NewManager(ctx context.Context, kubeconfig *rest.Config, fieldManagerName, 
 
 	poller := polling.NewStatusPoller(kubeClient, mapper, polling.Options{})
 
-	resourceManager := ssa.NewResourceManager(kubeClient, poller, ssa.Owner{
-		Field: fieldManagerName,
-	})
-
-	dynamicClient, err := dynamic.NewForConfigAndClient(kubeconfig, httpClient)
+	k8sClient, err := kubernetes.NewForConfigAndClient(kubeconfig, httpClient)
 	if err != nil {
 		return nil, err
 	}
 
-	inventory, err := GetInventory(ctx, dynamicClient, mapper, inventoryNamespace, inventoryName)
-	if err != nil {
-		return nil, err
+	inventoryFactory := func(ctx context.Context) (Inventory, error) {
+		return GetInventory(ctx, k8sClient, inventoryNamespace, inventoryName)
 	}
 
-	return NewCustomManager(resourceManager, inventory, httpClient), nil
+	resourceManager := &resourceManagerWithGet{
+		ResourceManager: *ssa.NewResourceManager(kubeClient, poller, ssa.Owner{
+			Field: fieldManagerName,
+		}),
+		kubeClient: kubeClient,
+	}
+
+	return NewCustomManager(resourceManager, inventoryFactory, httpClient), nil
 }
 
 // Close performs any necessary cleanup, such as closing the HTTP connections.
@@ -117,67 +121,22 @@ func (m *Manager) Close() {
 	}
 }
 
-// factoryMock is a minimal implementation of kubeutil.Factory interface.
-//
-// It implements enough to satisfy the needs of the inventory implementation.
-// We do this to ensure that all clients created are using same HTTP client.
-type factoryMock struct {
-	dynamicClient dynamic.Interface
-	mapper        meta.RESTMapper
+type resourceManagerWithGet struct {
+	kubeClient client.Client
+
+	ssa.ResourceManager
 }
 
-func (mock *factoryMock) ToRESTConfig() (*rest.Config, error) {
-	panic("not implemented")
-}
+func (r *resourceManagerWithGet) Get(ctx context.Context, objMeta object.ObjMetadata) (*unstructured.Unstructured, error) {
+	obj := &unstructured.Unstructured{}
 
-func (mock *factoryMock) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
-	panic("not implemented")
-}
+	err := r.kubeClient.Get(ctx, client.ObjectKey{
+		Namespace: objMeta.Namespace,
+		Name:      objMeta.Name,
+	}, obj)
+	if err != nil {
+		return nil, err
+	}
 
-func (mock *factoryMock) ToRESTMapper() (meta.RESTMapper, error) {
-	return mock.mapper, nil
-}
-
-func (mock *factoryMock) ToRawKubeConfigLoader() clientcmd.ClientConfig {
-	panic("not implemented")
-}
-
-func (mock *factoryMock) DynamicClient() (dynamic.Interface, error) {
-	return mock.dynamicClient, nil
-}
-
-func (mock *factoryMock) KubernetesClientSet() (*kubernetes.Clientset, error) {
-	panic("not implemented")
-}
-
-func (mock *factoryMock) RESTClient() (*rest.RESTClient, error) {
-	panic("not implemented")
-}
-
-func (mock *factoryMock) NewBuilder() *resource.Builder {
-	panic("not implemented")
-}
-
-func (mock *factoryMock) ClientForMapping(mapping *meta.RESTMapping) (resource.RESTClient, error) {
-	panic("not implemented")
-}
-
-func (mock *factoryMock) UnstructuredClientForMapping(mapping *meta.RESTMapping) (resource.RESTClient, error) {
-	panic("not implemented")
-}
-
-func (mock *factoryMock) Validator(validationDirective string) (validation.Schema, error) {
-	panic("not implemented")
-}
-
-func (mock *factoryMock) OpenAPIResourcesGetter() (openapi.OpenAPIResourcesGetter, error) {
-	panic("not implemented")
-}
-
-func (mock *factoryMock) OpenAPISchema() (openapi.Resources, error) {
-	panic("not implemented")
-}
-
-func (mock *factoryMock) OpenAPIV3Client() (openapiclient.Client, error) {
-	panic("not implemented")
+	return obj, nil
 }

@@ -14,18 +14,25 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"sigs.k8s.io/cli-utils/pkg/inventory"
-	"sigs.k8s.io/cli-utils/pkg/object"
 
 	"github.com/siderolabs/go-kubernetes/kubernetes/ssa"
 	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/internal/inventory/memory"
 	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/internal/resourcemanager"
 )
 
+func testInventoryClosure(_ context.Context, inv ssa.Inventory) ssa.InventoryFactory {
+	return func(context.Context) (ssa.Inventory, error) {
+		return inv, nil
+	}
+}
+
+func testInventoryFactory(context.Context) (ssa.Inventory, error) {
+	return memory.NewInventory("test-inventory"), nil
+}
+
 func TestCreateAllNew(t *testing.T) {
 	rm := resourcemanager.NewMock()
-	inv := memory.NewInventory("test-inventory")
-	manager := ssa.NewCustomManager(rm, inv, nil)
+	manager := ssa.NewCustomManager(rm, testInventoryFactory, nil)
 	obj := getConfigmapManifest("test-cm")
 
 	results, err := manager.Apply(t.Context(), []*unstructured.Unstructured{obj}, ssa.ApplyOptions{})
@@ -55,7 +62,7 @@ func (m brokenApplyResourceManager) ApplyAllStaged(ctx context.Context, objects 
 func TestApplyError(t *testing.T) {
 	rm := &brokenApplyResourceManager{}
 	inv := memory.NewInventory("test-inventory")
-	manager := ssa.NewCustomManager(rm, inv, nil)
+	manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
 	obj1 := getConfigmapManifest("configmap1")
 	obj2 := getConfigmapManifest("configmap2")
 
@@ -63,8 +70,8 @@ func TestApplyError(t *testing.T) {
 	require.EqualError(t, err, "apply failed", "the manager should return the error from the resourceManager apply")
 
 	require.Len(t, results, 1, "results for applied objects should exist")
-	invContents, err := inv.Read(t.Context())
-	require.NoError(t, err)
+
+	invContents := inv.Get()
 	require.Len(t, invContents, 1, "inventory should contain data about objects applied successfully")
 	assert.Equal(t, invContents[0].Name, obj1.GetName())
 }
@@ -72,7 +79,7 @@ func TestApplyError(t *testing.T) {
 func TestApplyError_No_Prune(t *testing.T) {
 	rm := &brokenApplyResourceManager{}
 	inv := memory.NewInventory("test-inventory")
-	manager := ssa.NewCustomManager(rm, inv, nil)
+	manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
 	obj1 := getConfigmapManifest("configmap1")
 	obj2 := getConfigmapManifest("configmap2")
 	existingObj := getConfigmapManifest("prune-configmap")
@@ -84,8 +91,8 @@ func TestApplyError_No_Prune(t *testing.T) {
 	require.Error(t, err)
 
 	require.Len(t, results, 1)
-	invContents, err := inv.Read(t.Context())
-	require.NoError(t, err)
+
+	invContents := inv.Get()
 	require.Len(t, invContents, 2, "inventory should still contain the prune-configmap")
 	assert.Equal(t, "prune-configmap", invContents[0].Name)
 	assert.Equal(t, obj1.GetName(), invContents[1].Name)
@@ -94,7 +101,7 @@ func TestApplyError_No_Prune(t *testing.T) {
 func TestResultDiff(t *testing.T) {
 	rm := resourcemanager.NewMock()
 	inv := memory.NewInventory("test-inventory")
-	manager := ssa.NewCustomManager(rm, inv, nil)
+	manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
 
 	existingObj := &unstructured.Unstructured{
 		Object: map[string]any{
@@ -121,8 +128,7 @@ func TestResultDiff(t *testing.T) {
 	newObj := getConfigmapManifest("new-cm")
 
 	// Apply modified + new objects, omitting pruneObj so it gets pruned.
-	results, err := manager.Apply(t.Context(), []*unstructured.Unstructured{modifiedObj, newObj},
-		ssa.ApplyOptions{InventoryPolicy: inventory.PolicyAdoptIfNoInventory})
+	results, err := manager.Apply(t.Context(), []*unstructured.Unstructured{modifiedObj, newObj}, ssa.ApplyOptions{InventoryPolicy: ssa.InventoryPolicyAdoptAll})
 	require.NoError(t, err)
 	require.Len(t, results, 3)
 
@@ -156,18 +162,8 @@ type brokenWriteInventory struct {
 	memory.Inventory
 }
 
-func (i *brokenWriteInventory) Write(_ context.Context, _ object.ObjMetadataSet) error {
+func (i *brokenWriteInventory) Write(_ context.Context) error {
 	return i.writeErr
-}
-
-// brokenReadInventory wraps memory.Inventory and fails on Read calls.
-type brokenReadInventory struct {
-	readErr error
-	memory.Inventory
-}
-
-func (i *brokenReadInventory) Read(_ context.Context) (object.ObjMetadataSet, error) {
-	return nil, i.readErr
 }
 
 func TestInventoryErrors(t *testing.T) {
@@ -178,7 +174,7 @@ func TestInventoryErrors(t *testing.T) {
 			Inventory: *memory.NewInventory("test-inventory"),
 			writeErr:  writeErr,
 		}
-		manager := ssa.NewCustomManager(rm, inv, nil)
+		manager := ssa.NewCustomManager(rm, func(ctx context.Context) (ssa.Inventory, error) { return inv, nil }, nil)
 
 		obj := getConfigmapManifest("test-cm")
 
@@ -199,7 +195,7 @@ func TestInventoryErrors(t *testing.T) {
 			Inventory: *memory.NewInventory("test-inventory"),
 			writeErr:  writeErr,
 		}
-		manager := ssa.NewCustomManager(rm, inv, nil)
+		manager := ssa.NewCustomManager(rm, func(ctx context.Context) (ssa.Inventory, error) { return inv, nil }, nil)
 
 		pruneObj := getConfigmapManifest("should-not-be-pruned")
 		// Seed existing object directly into the resource manager since broken inventory can't Write.
@@ -213,26 +209,6 @@ func TestInventoryErrors(t *testing.T) {
 		stillExists := rm.GetObject("", "ConfigMap", "default", "should-not-be-pruned")
 		require.NotNil(t, stillExists, "objects should not be pruned when inventory write fails")
 	})
-
-	t.Run("read_error_after_apply", func(t *testing.T) {
-		rm := resourcemanager.NewMock()
-		readErr := errors.New("inventory read failed")
-		inv := &brokenReadInventory{
-			Inventory: *memory.NewInventory("test-inventory"),
-			readErr:   readErr,
-		}
-		manager := ssa.NewCustomManager(rm, inv, nil)
-
-		obj := getConfigmapManifest("test-cm")
-
-		results, err := manager.Apply(t.Context(), []*unstructured.Unstructured{obj}, ssa.ApplyOptions{})
-		require.ErrorIs(t, err, readErr)
-		require.Nil(t, results, "no results should be returned when inventory read fails")
-
-		// The object should still be applied in the cluster despite the inventory read failure.
-		applied := rm.GetObject("", "ConfigMap", "default", "test-cm")
-		require.NotNil(t, applied, "object should exist in cluster despite inventory read failure")
-	})
 }
 
 func TestInventoryPolicy(t *testing.T) {
@@ -240,8 +216,7 @@ func TestInventoryPolicy(t *testing.T) {
 		// The pre-apply check rejects objects that already carry a different inventory
 		// annotation, regardless of the inventory policy.
 		rm := resourcemanager.NewMock()
-		inv := memory.NewInventory("my-inventory")
-		manager := ssa.NewCustomManager(rm, inv, nil)
+		manager := ssa.NewCustomManager(rm, testInventoryFactory, nil)
 
 		obj := getConfigmapManifest("test-cm")
 		obj.SetAnnotations(map[string]string{
@@ -249,7 +224,7 @@ func TestInventoryPolicy(t *testing.T) {
 		})
 
 		_, err := manager.Apply(t.Context(), []*unstructured.Unstructured{obj}, ssa.ApplyOptions{
-			InventoryPolicy: inventory.PolicyAdoptAll,
+			InventoryPolicy: ssa.InventoryPolicyAdoptAll,
 		})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "already has an inventory annotation")
@@ -258,8 +233,7 @@ func TestInventoryPolicy(t *testing.T) {
 	t.Run("policy_failure_prevents_all_applies", func(t *testing.T) {
 		// When one object fails the policy check, NO objects should be applied.
 		rm := resourcemanager.NewMock()
-		inv := memory.NewInventory("my-inventory")
-		manager := ssa.NewCustomManager(rm, inv, nil)
+		manager := ssa.NewCustomManager(rm, testInventoryFactory, nil)
 
 		// This object exists in the cluster with a foreign annotation — will fail MustMatch.
 		foreignObj := getConfigmapManifest("foreign-cm")
@@ -284,18 +258,18 @@ func TestInventoryPolicy(t *testing.T) {
 	t.Run("policy_failure_prevents_pruning", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, inv, nil)
+		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
 		pruneObj := getConfigmapManifest("prune-cm")
-		pruneObj.SetAnnotations(map[string]string{inventory.OwningInventoryKey: "foreign-inventory"})
+		pruneObj.SetAnnotations(map[string]string{ssa.InventoryAnnotationKey: "foreign-inventory"})
 
 		setExistingObjects(t, rm, inv, pruneObj)
 
-		results, err := manager.Apply(t.Context(), []*unstructured.Unstructured{}, ssa.ApplyOptions{InventoryPolicy: inventory.PolicyMustMatch})
+		results, err := manager.Apply(t.Context(), []*unstructured.Unstructured{}, ssa.ApplyOptions{InventoryPolicy: ssa.InventoryPolicyMustMatch})
 		require.ErrorContains(t, err, "inventory policy check failure")
 
 		require.Len(t, results, 0)
-		invContents, err := inv.Read(t.Context())
-		require.NoError(t, err)
+
+		invContents := inv.Get()
 		require.Len(t, invContents, 1, "the object should still be in the inventory after prune failure")
 
 		obj := rm.GetObject("", "ConfigMap", "default", "prune-cm")
@@ -326,21 +300,12 @@ func (m *brokenDeleteResourceManager) Delete(_ context.Context, _ *unstructured.
 	return nil, errors.New("delete failed")
 }
 
-// brokenGetPruneInventory wraps memory.Inventory and fails on GetPruneObjs calls.
-type brokenGetPruneInventory struct {
-	memory.Inventory
-}
-
-func (i *brokenGetPruneInventory) GetPruneObjs(_ context.Context, _ object.UnstructuredSet) (object.UnstructuredSet, error) {
-	return nil, errors.New("get prune objs failed")
-}
-
 func TestApplyEdgeCases(t *testing.T) {
 	t.Run("idempotent_reapply", func(t *testing.T) {
 		// Re-applying the same objects should not duplicate inventory entries.
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, inv, nil)
+		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
 
 		obj := getConfigmapManifest("test-cm")
 
@@ -348,8 +313,7 @@ func TestApplyEdgeCases(t *testing.T) {
 		_, err := manager.Apply(t.Context(), []*unstructured.Unstructured{obj}, ssa.ApplyOptions{})
 		require.NoError(t, err)
 
-		invContents, err := inv.Read(t.Context())
-		require.NoError(t, err)
+		invContents := inv.Get()
 		require.Len(t, invContents, 1)
 
 		// Second apply — same object.
@@ -359,16 +323,14 @@ func TestApplyEdgeCases(t *testing.T) {
 		require.Len(t, results, 1)
 		assert.Equal(t, ssa.ConfiguredAction, results[0].Action)
 
-		invContents, err = inv.Read(t.Context())
-		require.NoError(t, err)
+		invContents = inv.Get()
 		require.Len(t, invContents, 1, "inventory should not contain duplicates after re-apply")
 	})
 
 	t.Run("diff_error", func(t *testing.T) {
 		// A non-NotFound error from Diff should abort Apply before any objects are applied.
 		rm := &brokenDiffResourceManager{}
-		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, inv, nil)
+		manager := ssa.NewCustomManager(rm, testInventoryFactory, nil)
 
 		obj := getConfigmapManifest("test-cm")
 
@@ -386,45 +348,26 @@ func TestApplyEdgeCases(t *testing.T) {
 		// When Delete fails during pruning, the error should be returned without the change result.
 		rm := &brokenDeleteResourceManager{}
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, inv, nil)
+		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
 
 		pruneObj := getConfigmapManifest("old-cm")
 		setExistingObjects(t, &rm.Mock, inv, pruneObj)
 
-		results, err := manager.Apply(t.Context(), []*unstructured.Unstructured{}, ssa.ApplyOptions{InventoryPolicy: inventory.PolicyAdoptAll})
+		results, err := manager.Apply(t.Context(), []*unstructured.Unstructured{}, ssa.ApplyOptions{InventoryPolicy: ssa.InventoryPolicyAdoptAll})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "delete failed")
 		assert.Empty(t, results)
 
 		// The object should remain in inventory since it couldn't be deleted.
-		invContents, err := inv.Read(t.Context())
-		require.NoError(t, err)
+		invContents := inv.Get()
 		require.Len(t, invContents, 1, "failed-to-delete object should remain in inventory")
 		assert.Equal(t, "old-cm", invContents[0].Name)
-	})
-
-	t.Run("get_prune_objs_error", func(t *testing.T) {
-		// When GetPruneObjs fails, the error is returned but the already-applied
-		// objects are still included in the results.
-		rm := resourcemanager.NewMock()
-		inv := &brokenGetPruneInventory{Inventory: *memory.NewInventory("test-inventory")}
-		manager := ssa.NewCustomManager(rm, inv, nil)
-
-		obj := getConfigmapManifest("test-cm")
-
-		results, err := manager.Apply(t.Context(), []*unstructured.Unstructured{obj}, ssa.ApplyOptions{})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to get prune objects")
-
-		// Applied objects should still be in the results.
-		require.Len(t, results, 1)
-		assert.Equal(t, ssa.CreatedAction, results[0].Action)
 	})
 
 	t.Run("no_prune_option", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, inv, nil)
+		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
 
 		pruneObj := getConfigmapManifest("old-cm")
 		setExistingObjects(t, rm, inv, pruneObj)
@@ -435,8 +378,8 @@ func TestApplyEdgeCases(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Len(t, results, 0)
-		invContents, err := inv.Read(t.Context())
-		require.NoError(t, err)
+
+		invContents := inv.Get()
 		require.Len(t, invContents, 1, "object should remain in inventory")
 	})
 }

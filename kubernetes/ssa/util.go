@@ -11,6 +11,11 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
+// FormatMetaPath returns a string with the format <kind>/<namespace>/<name> for a given object metadata.
+func FormatMetaPath(meta object.ObjMetadata) string {
+	return formatPath(meta.Namespace, meta.Name, meta.GroupKind.Kind)
+}
+
 // FormatObjectPath returns a string with the format <kind>/<namespace>/<name> for a given object.
 func FormatObjectPath(obj *unstructured.Unstructured) string {
 	kind := obj.GetObjectKind().GroupVersionKind().Kind
@@ -39,6 +44,7 @@ func FormatObjectPathWithGV(obj *unstructured.Unstructured) string {
 	return formatPathGV(version, group, namespace, name, groupKind)
 }
 
+// FormatObjectMetaPath returns a string with the format <group/version>.<kind>/<namespace>/<name> for a given object metadata.
 func FormatObjectMetaPath(meta object.ObjMetadata, version string) string {
 	return formatPathGV(version, meta.GroupKind.Group, meta.Namespace, meta.Name, meta.GroupKind.Kind)
 }

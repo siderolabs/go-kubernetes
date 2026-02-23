@@ -14,12 +14,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"sigs.k8s.io/cli-utils/pkg/inventory"
-	"sigs.k8s.io/cli-utils/pkg/object"
 
 	"github.com/siderolabs/go-kubernetes/kubernetes/ssa"
 	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/internal/inventory/memory"
 	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/internal/resourcemanager"
+	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/object"
 )
 
 func TestManager_Diff(t *testing.T) {
@@ -27,8 +26,7 @@ func TestManager_Diff(t *testing.T) {
 
 	t.Run("CreateAction", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
-		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, inv, nil)
+		manager := ssa.NewCustomManager(rm, testInventoryFactory, nil)
 
 		obj := &unstructured.Unstructured{
 			Object: map[string]any{
@@ -55,7 +53,7 @@ func TestManager_Diff(t *testing.T) {
 	t.Run("ModifyAction", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, inv, nil)
+		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
 
 		existingObj := &unstructured.Unstructured{
 			Object: map[string]any{
@@ -77,26 +75,26 @@ func TestManager_Diff(t *testing.T) {
 		newObj.SetAnnotations(map[string]string{"key": "new-value"})
 
 		// should fail inventory policy validation
-		results, err := manager.Diff(ctx, []*unstructured.Unstructured{}, ssa.DiffOptions{InventoryPolicy: inventory.PolicyMustMatch})
+		results, err := manager.Diff(ctx, []*unstructured.Unstructured{}, ssa.DiffOptions{InventoryPolicy: ssa.InventoryPolicyMustMatch})
 		require.ErrorContains(t, err, "inventory policy check failure")
 		require.Len(t, results, 0)
 
-		results, err = manager.Diff(ctx, []*unstructured.Unstructured{newObj}, ssa.DiffOptions{InventoryPolicy: inventory.PolicyAdoptIfNoInventory})
+		results, err = manager.Diff(ctx, []*unstructured.Unstructured{newObj}, ssa.DiffOptions{InventoryPolicy: ssa.InventoryPolicyAdoptIfNoInventory})
 		require.NoError(t, err)
 		require.Len(t, results, 1)
 		assert.Equal(t, ssa.DiffConfiguredAction, results[0].Action)
 		assert.Contains(t, results[0].Diff, "-    key: old-value")
 		assert.Contains(t, results[0].Diff, "+    key: new-value")
 		assert.Equal(t, map[string]string{
-			"key":                        "new-value",
-			inventory.OwningInventoryKey: "test-inventory",
+			"key":                      "new-value",
+			ssa.InventoryAnnotationKey: "test-inventory",
 		}, results[0].DryRunResultObject.GetAnnotations())
 	})
 
 	t.Run("Unchanged", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, inv, nil)
+		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
 
 		obj := &unstructured.Unstructured{
 			Object: map[string]any{
@@ -107,7 +105,7 @@ func TestManager_Diff(t *testing.T) {
 					"namespace": "default",
 					"annotations": map[string]any{
 						// an existing object would have this annotation set if it was applied with this library
-						inventory.OwningInventoryKey: "test-inventory",
+						ssa.InventoryAnnotationKey: "test-inventory",
 					},
 				},
 				"data": map[string]any{
@@ -118,7 +116,7 @@ func TestManager_Diff(t *testing.T) {
 
 		setExistingObjects(t, rm, inv, obj)
 
-		results, err := manager.Diff(ctx, []*unstructured.Unstructured{obj}, ssa.DiffOptions{InventoryPolicy: inventory.PolicyAdoptIfNoInventory})
+		results, err := manager.Diff(ctx, []*unstructured.Unstructured{obj}, ssa.DiffOptions{InventoryPolicy: ssa.InventoryPolicyAdoptIfNoInventory})
 		require.NoError(t, err)
 		require.Len(t, results, 1)
 		assert.Equal(t, results[0].Action, ssa.DiffUnchangedAction)
@@ -129,7 +127,7 @@ func TestManager_Diff(t *testing.T) {
 	t.Run("PruneAction", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, inv, nil)
+		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
 
 		// Object in inventory but not in applied objects
 		pruneObj := &unstructured.Unstructured{
@@ -146,11 +144,11 @@ func TestManager_Diff(t *testing.T) {
 		setExistingObjects(t, rm, inv, pruneObj)
 
 		// should fail inventory policy validation
-		results, err := manager.Diff(ctx, []*unstructured.Unstructured{}, ssa.DiffOptions{InventoryPolicy: inventory.PolicyMustMatch})
+		results, err := manager.Diff(ctx, []*unstructured.Unstructured{}, ssa.DiffOptions{InventoryPolicy: ssa.InventoryPolicyMustMatch})
 		require.ErrorContains(t, err, "inventory policy check failure")
 		require.Len(t, results, 0)
 
-		results, err = manager.Diff(ctx, []*unstructured.Unstructured{}, ssa.DiffOptions{InventoryPolicy: inventory.PolicyAdoptIfNoInventory})
+		results, err = manager.Diff(ctx, []*unstructured.Unstructured{}, ssa.DiffOptions{InventoryPolicy: ssa.InventoryPolicyAdoptIfNoInventory})
 		require.NoError(t, err)
 
 		require.Len(t, results, 1)
@@ -161,7 +159,7 @@ func TestManager_Diff(t *testing.T) {
 	t.Run("NoPrune_option", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, inv, nil)
+		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
 
 		pruneObj := &unstructured.Unstructured{
 			Object: map[string]any{
@@ -176,7 +174,7 @@ func TestManager_Diff(t *testing.T) {
 
 		setExistingObjects(t, rm, inv, pruneObj)
 
-		results, err := manager.Diff(ctx, []*unstructured.Unstructured{}, ssa.DiffOptions{NoPrune: true, InventoryPolicy: inventory.PolicyAdoptIfNoInventory})
+		results, err := manager.Diff(ctx, []*unstructured.Unstructured{}, ssa.DiffOptions{NoPrune: true, InventoryPolicy: ssa.InventoryPolicyAdoptIfNoInventory})
 		require.NoError(t, err)
 		require.Len(t, results, 0)
 	})
@@ -184,7 +182,7 @@ func TestManager_Diff(t *testing.T) {
 	t.Run("Diff_Render_Snapshot", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, inv, nil)
+		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
 
 		inputObject := &unstructured.Unstructured{
 			Object: map[string]any{
@@ -205,7 +203,7 @@ func TestManager_Diff(t *testing.T) {
 		existingObj := inputObject.DeepCopy()
 		existingObj.SetAnnotations(map[string]string{
 			// an existing object would have this annotation set if it was applied with this library
-			inventory.OwningInventoryKey: "test-inventory",
+			ssa.InventoryAnnotationKey: "test-inventory",
 		})
 
 		existingToBeDeletedObj := existingObj.DeepCopy()
@@ -231,7 +229,7 @@ func TestManager_Diff(t *testing.T) {
 			},
 		}
 
-		results, err := manager.Diff(ctx, []*unstructured.Unstructured{modifiedObj, newObj}, ssa.DiffOptions{InventoryPolicy: inventory.PolicyAdoptIfNoInventory})
+		results, err := manager.Diff(ctx, []*unstructured.Unstructured{modifiedObj, newObj}, ssa.DiffOptions{InventoryPolicy: ssa.InventoryPolicyAdoptIfNoInventory})
 		require.NoError(t, err)
 		require.Len(t, results, 3)
 		assert.Equal(t, ssa.DiffPrunedAction, results[0].Action)
@@ -253,7 +251,8 @@ func setExistingObjects(t *testing.T, rm resourcemanager.MockResourceManager, in
 		metadataSet = append(metadataSet, getObjectMetadataSet(o)...)
 	}
 
-	err := inv.Write(t.Context(), metadataSet)
+	inv.Update(metadataSet)
+	err := inv.Write(t.Context())
 	require.NoError(t, err)
 }
 

@@ -8,77 +8,65 @@ package configmap
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/dynamic"
-	kubeutil "k8s.io/kubectl/pkg/cmd/util"
-	"sigs.k8s.io/cli-utils/pkg/apply/prune"
-	"sigs.k8s.io/cli-utils/pkg/inventory"
-	"sigs.k8s.io/cli-utils/pkg/object"
+	"k8s.io/client-go/kubernetes"
+
+	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/object"
 )
 
 // Inventory is a ConfigMap-based implementation of the Inventory interface.
 type Inventory struct {
-	inv       inventory.Inventory
-	client    inventory.Client
-	pruner    prune.Pruner
+	client *kubernetes.Clientset
+
 	name      string
 	namespace string
+
+	contents object.ObjMetadataSet
 }
 
 // NewInventory creates a new ConfigMap-based inventory.
 //
 // If the inventory doesn't exist yet, it will be created.
 // If it already exists, it will be fetched and returned.
-func NewInventory(ctx context.Context, namespace, name string, factory kubeutil.Factory) (*Inventory, error) {
+func NewInventory(ctx context.Context, k8sClient *kubernetes.Clientset, namespace, name string) (*Inventory, error) {
 	i := &Inventory{
+		client: k8sClient,
+
 		name:      name,
 		namespace: namespace,
 	}
 
-	inventoryInfo := inventory.NewSingleObjectInfo(inventory.ID(i.ID()), types.NamespacedName{Namespace: namespace, Name: name})
-
-	inventoryClient, err := inventory.ConfigMapClientFactory{StatusEnabled: true}.NewClient(factory)
-	if err != nil {
-		return nil, err
+	configmap, err := i.client.CoreV1().ConfigMaps(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
+		return nil, fmt.Errorf("failed to fetch the inventory configmap: %w", err)
 	}
 
-	err = AssureInventory(ctx, inventoryClient, inventoryInfo)
-	if err != nil {
-		return nil, err
+	if apierrors.IsNotFound(err) {
+		configmap = &v1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+			},
+		}
+
+		_, err = i.client.CoreV1().ConfigMaps(namespace).Create(ctx, configmap, metav1.CreateOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create the inventory configmap: %w", err)
+		}
 	}
 
-	dynamicClient, err := factory.DynamicClient()
-	if err != nil {
-		return nil, err
+	for objKey := range configmap.Data {
+		objMetadata, err := object.ParseObjMetadata(objKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse object metadata: %w", err)
+		}
+
+		i.contents = append(i.contents, objMetadata)
 	}
-
-	mapper, err := factory.ToRESTMapper()
-	if err != nil {
-		return nil, err
-	}
-
-	inventoryPruner := prune.Pruner{
-		InvClient: inventoryClient,
-		Client:    dynamicClient,
-		Mapper:    mapper,
-	}
-
-	i.client = inventoryClient
-	i.pruner = inventoryPruner
-
-	inv, err := i.client.Get(ctx, inventory.NewSingleObjectInfo(inventory.ID(name), types.NamespacedName{Namespace: namespace, Name: name}), inventory.GetOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch the inventory: %w", err)
-	}
-
-	i.inv = inv
 
 	return i, nil
 }
@@ -88,18 +76,30 @@ func (i *Inventory) ID() string {
 	return i.name
 }
 
-func (i *Inventory) Read(ctx context.Context) (object.ObjMetadataSet, error) {
-	return i.inv.GetObjectRefs(), nil
+// Get returns the list of object references tracked in the inventory.
+func (i *Inventory) Get() object.ObjMetadataSet {
+	return slices.Clone(i.contents)
 }
 
-func (i *Inventory) GetPruneObjs(ctx context.Context, objects object.UnstructuredSet) (object.UnstructuredSet, error) {
-	return i.pruner.GetPruneObjs(ctx, i.inv, objects, prune.Options{})
+// Update updates the inventory with the given set of object references.
+func (i *Inventory) Update(objectRefs object.ObjMetadataSet) {
+	i.contents = slices.Clone(objectRefs)
 }
 
-func (i *Inventory) Write(ctx context.Context, set object.ObjMetadataSet) error {
-	i.inv.SetObjectRefs(set)
+func (i *Inventory) Write(ctx context.Context) error {
+	configmap := &v1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      i.name,
+			Namespace: i.namespace,
+		},
+		Data: make(map[string]string, len(i.contents)),
+	}
 
-	err := i.client.CreateOrUpdate(ctx, i.inv, inventory.UpdateOptions{})
+	for _, objMetadata := range i.contents {
+		configmap.Data[objMetadata.String()] = ""
+	}
+
+	_, err := i.client.CoreV1().ConfigMaps(i.namespace).Update(ctx, configmap, metav1.UpdateOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to update the inventory: %w", err)
 	}
@@ -107,28 +107,23 @@ func (i *Inventory) Write(ctx context.Context, set object.ObjMetadataSet) error 
 	return nil
 }
 
+// Delete removes the inventory from the cluster.
 func (i *Inventory) Delete(ctx context.Context) error {
-	err := i.client.Delete(ctx, i.inv.Info(), inventory.DeleteOptions{})
-	if err != nil {
+	err := i.client.CoreV1().ConfigMaps(i.namespace).Delete(ctx, i.name, metav1.DeleteOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("failed to delete the inventory: %w", err)
 	}
 
 	return nil
 }
 
-var namespaceGVR = schema.GroupVersionResource{
-	Group:    "", // core API group
-	Version:  "v1",
-	Resource: "namespaces",
-}
-
-func AssureInventoryNamespace(ctx context.Context, inventoryNamespace string, k8sClient *dynamic.DynamicClient) error {
-	namespace, getInvErr := k8sClient.Resource(namespaceGVR).Get(ctx, inventoryNamespace, metav1.GetOptions{})
-	if getInvErr != nil && !apierrors.IsNotFound(getInvErr) {
-		return getInvErr
+func AssureInventoryNamespace(ctx context.Context, k8sClient *kubernetes.Clientset, inventoryNamespace string) error {
+	_, err := k8sClient.CoreV1().Namespaces().Get(ctx, inventoryNamespace, metav1.GetOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
+		return err
 	}
 
-	if namespace != nil {
+	if err == nil {
 		return nil
 	}
 
@@ -138,32 +133,10 @@ func AssureInventoryNamespace(ctx context.Context, inventoryNamespace string, k8
 		},
 	}
 
-	objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(ns)
-	if err != nil {
-		return fmt.Errorf("failed to convert namespace object to unstructured: %w", err)
+	_, err = k8sClient.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("failed to create inventory namespace: %w", err)
 	}
 
-	unstructuredNS := &unstructured.Unstructured{Object: objMap}
-
-	_, getInvErr = k8sClient.Resource(namespaceGVR).Create(ctx, unstructuredNS, metav1.CreateOptions{})
-
-	return getInvErr
-}
-
-func AssureInventory(ctx context.Context, inventoryClient inventory.Client, inventoryInfo *inventory.SingleObjectInfo) error {
-	inv, err := inventoryClient.Get(ctx, inventoryInfo, inventory.GetOptions{})
-	if err != nil && !apierrors.IsNotFound(err) {
-		return err
-	}
-
-	if inv != nil {
-		return nil
-	}
-
-	inv, err = inventoryClient.NewInventory(inventoryInfo)
-	if err != nil {
-		return err
-	}
-
-	return inventoryClient.CreateOrUpdate(ctx, inv, inventory.UpdateOptions{})
+	return nil
 }

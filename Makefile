@@ -1,6 +1,6 @@
 # THIS FILE WAS AUTOMATICALLY GENERATED, PLEASE DO NOT EDIT.
 #
-# Generated on 2026-02-18T13:22:48Z by kres 6458cfd.
+# Generated on 2026-02-24T14:27:38Z by kres 6458cfd.
 
 # common variables
 
@@ -78,6 +78,12 @@ COMMON_ARGS += --build-arg=GOFUMPT_VERSION="$(GOFUMPT_VERSION)"
 COMMON_ARGS += --build-arg=TESTPKGS="$(TESTPKGS)"
 TOOLCHAIN ?= docker.io/golang:1.26-alpine
 
+# extra variables
+
+TEST_SKIP_CLEANUP ?= false
+GOOS ?= $(shell uname -s | tr "[:upper:]" "[:lower:]")
+TALOS_VERSION ?= latest
+
 # help menu
 
 export define HELP_MENU_HEADER
@@ -144,7 +150,7 @@ else
 GO_LDFLAGS += -s
 endif
 
-all: unit-tests lint
+all: unit-tests integration-test lint
 
 $(ARTIFACTS):  ## Creates artifacts directory.
 	@mkdir -p $(ARTIFACTS)
@@ -206,6 +212,62 @@ unit-tests:  ## Performs unit tests
 .PHONY: unit-tests-race
 unit-tests-race:  ## Performs unit tests with race detection enabled.
 	@$(MAKE) target-$@
+
+run-integration-test: k8s-up integration-test
+	$(PWD)/$(ARTIFACTS)/integration-test-$(GOOS)-$(GOARCH) -test.timeout 180s -test.v -test.coverprofile=_out/coverage-integration.txt
+
+.PHONY: $(ARTIFACTS)/integration-test-darwin-amd64
+$(ARTIFACTS)/integration-test-darwin-amd64:
+	@$(MAKE) local-integration-test-darwin-amd64 DEST=$(ARTIFACTS)
+
+.PHONY: integration-test-darwin-amd64
+integration-test-darwin-amd64: $(ARTIFACTS)/integration-test-darwin-amd64  ## Builds executable for integration-test-darwin-amd64.
+
+.PHONY: $(ARTIFACTS)/integration-test-darwin-arm64
+$(ARTIFACTS)/integration-test-darwin-arm64:
+	@$(MAKE) local-integration-test-darwin-arm64 DEST=$(ARTIFACTS)
+
+.PHONY: integration-test-darwin-arm64
+integration-test-darwin-arm64: $(ARTIFACTS)/integration-test-darwin-arm64  ## Builds executable for integration-test-darwin-arm64.
+
+.PHONY: $(ARTIFACTS)/integration-test-linux-amd64
+$(ARTIFACTS)/integration-test-linux-amd64:
+	@$(MAKE) local-integration-test-linux-amd64 DEST=$(ARTIFACTS)
+
+.PHONY: integration-test-linux-amd64
+integration-test-linux-amd64: $(ARTIFACTS)/integration-test-linux-amd64  ## Builds executable for integration-test-linux-amd64.
+
+.PHONY: $(ARTIFACTS)/integration-test-linux-arm64
+$(ARTIFACTS)/integration-test-linux-arm64:
+	@$(MAKE) local-integration-test-linux-arm64 DEST=$(ARTIFACTS)
+
+.PHONY: integration-test-linux-arm64
+integration-test-linux-arm64: $(ARTIFACTS)/integration-test-linux-arm64  ## Builds executable for integration-test-linux-arm64.
+
+.PHONY: integration-test
+integration-test: integration-test-darwin-amd64 integration-test-darwin-arm64 integration-test-linux-amd64 integration-test-linux-arm64  ## Builds executables for integration-test.
+
+.PHONY: k8s-up
+k8s-up: $(ARTIFACTS) talosctl
+	$(ARTIFACTS)/talosctl cluster create docker \
+	    --name=go-kubernetes-integration-test \
+	    --talosconfig-destination=$(ARTIFACTS)/talosconfig \
+	    --mtu=1450
+	$(ARTIFACTS)/talosctl kubeconfig $(ARTIFACTS)/kubeconfig \
+	    --talosconfig=$(ARTIFACTS)/talosconfig \
+	    --nodes=10.5.0.2 \
+	    --force
+
+.PHONY: k8s-down
+k8s-down:
+	$(ARTIFACTS)/talosctl cluster destroy \
+	    --name=go-kubernetes-integration-test
+	rm -f $(ARTIFACTS)/talosconfig $(ARTIFACTS)/kubeconfig
+
+.PHONY: talosctl
+talosctl: $(ARTIFACTS)
+	curl -Lo $(ARTIFACTS)/talosctl https://github.com/siderolabs/talos/releases/$(TALOS_VERSION)/download/talosctl-$(GOOS)-$(GOARCH)
+	chmod +x $(ARTIFACTS)/talosctl
 
 .PHONY: lint-markdown
 lint-markdown:  ## Runs markdownlint.

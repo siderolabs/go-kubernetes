@@ -10,20 +10,21 @@ import (
 	"fmt"
 	"time"
 
-	fluxobj "github.com/fluxcd/cli-utils/pkg/object"
 	"github.com/fluxcd/pkg/ssa"
 	"github.com/fluxcd/pkg/ssa/utils"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"sigs.k8s.io/cli-utils/pkg/inventory"
-	"sigs.k8s.io/cli-utils/pkg/object"
+
+	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/object"
 )
 
+// ApplyOptions defines the options for the Apply method.
 type ApplyOptions struct {
 	// PrunePropagationPolicy configures the delete operation propagation policy.
 	PrunePropagationPolicy v1.DeletionPropagation
-	// Policy defines if an inventory object can take over objects that belong to another inventory object or don't belong to any inventory object.
-	InventoryPolicy inventory.Policy
+	// InventoryPolicy defines if an inventory object can take over objects that belong to another inventory object or don't belong to any inventory object.
+	InventoryPolicy InventoryPolicy
 	// WaitInterval defines the interval at which the engine polls for cluster
 	// scoped resources to reach their final state.
 	WaitInterval time.Duration
@@ -38,8 +39,7 @@ type ApplyOptions struct {
 	Force bool
 }
 
-type ObjMetadata = fluxobj.ObjMetadata
-
+// Action represents the type of change that occurred to an object as a result of an SSA operation.
 type Action = ssa.Action
 
 const (
@@ -51,8 +51,9 @@ const (
 	UnknownAction    Action = ssa.UnknownAction
 )
 
+// ChangeSetEntry represents the change to a single object as a result of an SSA operation.
 type ChangeSetEntry struct {
-	ObjMetadata  ObjMetadata
+	ObjMetadata  object.ObjMetadata
 	GroupVersion string
 	Subject      string
 	Action       Action
@@ -87,21 +88,26 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 		changeMap[FormatObjectPathWithGV(obj)] = &change
 	}
 
-	if err := m.prepareObjects(objects); err != nil {
+	inv, err := m.inventory(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = m.prepareObjects(objects, inv.ID()); err != nil {
 		return nil, err
 	}
 
 	setDefaultOps(&ops)
 
 	for _, obj := range objects {
-		changeSet, inclusterObj, dryRunObject, err := m.diff(ctx, obj, DiffOptions{Force: ops.Force})
-		if err != nil {
-			return nil, err
+		changeSet, inclusterObj, dryRunObject, diffErr := m.diff(ctx, obj, DiffOptions{Force: ops.Force})
+		if diffErr != nil {
+			return nil, diffErr
 		}
 
-		diff, err := manifestDiff(inclusterObj, dryRunObject)
-		if err != nil {
-			return nil, err
+		diff, diffErr := manifestDiff(inclusterObj, dryRunObject)
+		if diffErr != nil {
+			return nil, diffErr
 		}
 
 		changeMap[FormatObjectPathWithGV(obj)].Diff = diff
@@ -111,9 +117,9 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 			continue
 		}
 
-		_, err = inventory.CanApply(inventoryIDInfo{id: m.inventory.ID()}, inclusterObj, ops.InventoryPolicy)
+		err = checkInventoryPolicy(inv.ID(), inclusterObj, ops.InventoryPolicy)
 		if err != nil {
-			return nil, fmt.Errorf("inventory policy check failure for object %s, %w", changeSet.Subject, err)
+			return nil, invPolicyFailureErr(obj, err)
 		}
 	}
 
@@ -126,10 +132,7 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 		return nil, applyErr
 	}
 
-	inventoryObjRefs, err := m.inventory.Read(ctx)
-	if err != nil {
-		return nil, err
-	}
+	inventoryObjRefs := inv.Get()
 
 	var invErr error
 
@@ -138,18 +141,20 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 		case ssa.ConfiguredAction, ssa.CreatedAction, ssa.SkippedAction, ssa.UnchangedAction:
 			changeMap[FormatObjectMetaPath(e.ObjMetadata, e.GroupVersion)].Action = e.Action
 
-			if inventoryObjRefs.Contains(object.ObjMetadata(e.ObjMetadata)) {
+			if inventoryObjRefs.Contains(e.ObjMetadata) {
 				continue
 			}
 
-			inventoryObjRefs = append(inventoryObjRefs, object.ObjMetadata(e.ObjMetadata))
+			inventoryObjRefs = append(inventoryObjRefs, e.ObjMetadata)
 		// should never happen
 		case ssa.DeletedAction, ssa.UnknownAction:
 			invErr = errors.Join(invErr, fmt.Errorf("unexpected %q action taken by resourceManager for resource %s", e.Action, e.Subject))
 		}
 	}
 
-	invErr = errors.Join(invErr, m.inventory.Write(ctx, inventoryObjRefs))
+	// Write the newly deployed objects to the inventory .
+	inv.Update(inventoryObjRefs)
+	invErr = errors.Join(invErr, inv.Write(ctx))
 
 	// return if there were inventory or apply errors and skip pruning
 	err = errors.Join(applyErr, invErr)
@@ -161,17 +166,26 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 		return changesMapToArray(changeMap), nil
 	}
 
-	pruneObj, err := m.inventory.GetPruneObjs(ctx, objects)
-	if err != nil {
-		return changesMapToArray(changeMap), fmt.Errorf("failed to get prune objects: %w", err)
-	}
+	pruneObjRefs := calculatePruneObjects(inventoryObjRefs, objects)
 
 	var pruneErr error
 
-	for _, obj := range pruneObj {
-		_, err = inventory.CanApply(inventoryIDInfo{id: m.inventory.ID()}, obj, ops.InventoryPolicy)
+	for _, objMeta := range pruneObjRefs {
+		obj, err := m.resourceManager.Get(ctx, objMeta)
 		if err != nil {
-			return nil, fmt.Errorf("inventory policy check failure for object %s, %w", FormatObjectPathWithGV(obj), err)
+			if apierrors.IsNotFound(err) {
+				// object doesn't exist, remove it from inventory and continue
+				inventoryObjRefs = inventoryObjRefs.Remove(objMeta)
+
+				continue
+			}
+
+			return nil, fmt.Errorf("failed to get object %s, %w", FormatMetaPath(objMeta), err)
+		}
+
+		err = checkInventoryPolicy(inv.ID(), obj, ops.InventoryPolicy)
+		if err != nil {
+			return nil, invPolicyFailureErr(obj, err)
 		}
 
 		e, err := m.resourceManager.Delete(ctx, obj, ssa.DeleteOptions{
@@ -183,7 +197,7 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 			continue
 		}
 
-		inventoryObjRefs = inventoryObjRefs.Remove(object.ObjMetadata(e.ObjMetadata))
+		inventoryObjRefs = inventoryObjRefs.Remove(e.ObjMetadata)
 
 		diff, err := createDeletedDiff(obj)
 		if err != nil {
@@ -194,23 +208,59 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 		changeMap[FormatObjectPathWithGV(obj)] = &change
 	}
 
-	invErr = m.inventory.Write(ctx, inventoryObjRefs)
+	inv.Update(inventoryObjRefs)
+	invErr = inv.Write(ctx)
 
 	return changesMapToArray(changeMap), errors.Join(pruneErr, invErr)
 }
 
+func invPolicyFailureErr(obj *unstructured.Unstructured, err error) error {
+	return fmt.Errorf("inventory policy check failure for object %s, %w", FormatObjectPathWithGV(obj), err)
+}
+
+func calculatePruneObjects(inventoryObjRefs object.ObjMetadataSet, objects []*unstructured.Unstructured) object.ObjMetadataSet {
+	pruneObjRefs := object.ObjMetadataSet{}
+
+	for _, ref := range inventoryObjRefs {
+		found := false
+
+		for _, obj := range objects {
+			if ref.Equals(&object.ObjMetadata{
+				Namespace: obj.GetNamespace(),
+				Name:      obj.GetName(),
+				GroupKind: obj.GroupVersionKind().GroupKind(),
+			}) {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			pruneObjRefs = append(pruneObjRefs, ref)
+		}
+	}
+
+	return pruneObjRefs
+}
+
 // prepareObjects prepares the objects before diff/apply actions.
-func (m *Manager) prepareObjects(objects []*unstructured.Unstructured) error {
+func (m *Manager) prepareObjects(objects []*unstructured.Unstructured, inventoryID string) error {
 	for _, obj := range objects {
 		annotations := obj.GetAnnotations()
 
+		if annotations == nil {
+			annotations = make(map[string]string)
+		}
+
 		inventoryAnnotation, inventoryAnnotationSet := annotations[InventoryAnnotationKey]
 
-		if inventoryAnnotationSet && inventoryAnnotation != m.inventory.ID() {
+		if inventoryAnnotationSet && inventoryAnnotation != inventoryID {
 			return fmt.Errorf("object %s already has an inventory annotation", FormatObjectPathWithGV(obj))
 		}
 
-		inventory.AddInventoryIDAnnotation(obj, inventory.ID(m.inventory.ID()))
+		annotations[InventoryAnnotationKey] = inventoryID
+		obj.SetAnnotations(annotations)
 	}
 
 	return nil
@@ -228,12 +278,16 @@ func setDefaultOps(ops *ApplyOptions) {
 	if ops.PrunePropagationPolicy == "" {
 		ops.PrunePropagationPolicy = v1.DeletePropagationBackground
 	}
+
+	if ops.InventoryPolicy == "" {
+		ops.InventoryPolicy = InventoryPolicyMustMatch
+	}
 }
 
 func changeFromObject(obj *unstructured.Unstructured, diff string, action Action) Change {
 	return Change{
 		ChangeSetEntry: ChangeSetEntry{
-			ObjMetadata: ObjMetadata{
+			ObjMetadata: object.ObjMetadata{
 				Namespace: obj.GetNamespace(),
 				Name:      obj.GetName(),
 				GroupKind: obj.GroupVersionKind().GroupKind(),
@@ -260,18 +314,4 @@ func changesMapToArray(changeMap map[string]*Change) []Change {
 	}
 
 	return changes
-}
-
-// inventoryIDInfo implements inventory.Info, but only returns the ID.
-type inventoryIDInfo struct {
-	id string
-}
-
-func (info inventoryIDInfo) GetNamespace() string {
-	// we don't know the namespace of a generic inventory
-	return ""
-}
-
-func (info inventoryIDInfo) GetID() inventory.ID {
-	return inventory.ID(info.id)
 }

@@ -1,8 +1,14 @@
 --- a/v1.ConfigMap/default/i-was-pruned-configmap
 +++ b/v1.ConfigMap/default/i-was-pruned-configmap
-@@ -1,5 +0,0 @@
--apiVersion: ""
+@@ -1,11 +0,0 @@
+-apiVersion: v1
+-data:
+-  key1: value1
+-  key2: value2
+-  key3: value3
 -kind: ConfigMap
 -metadata:
+-  annotations:
+-    config.k8s.io/owning-inventory: test-inventory
 -  name: i-was-pruned-configmap
 -  namespace: default
