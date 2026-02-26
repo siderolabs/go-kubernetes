@@ -169,6 +169,12 @@ func (m *Manager) diff(
 		if err != nil {
 			return nil, "", err
 		}
+
+		// inventory conflict check: only relevant for modified objects
+		err = checkInventoryPolicy(invID, inClusterObj, invPolicy)
+		if err != nil {
+			return nil, "", invPolicyFailureErr(inputObj, err)
+		}
 	}
 
 	// should never happen, but just in case
@@ -176,14 +182,6 @@ func (m *Manager) diff(
 		diff, err = createDeletedDiff(inputObj)
 		if err != nil {
 			return nil, "", err
-		}
-	}
-
-	// inventory conflict check: only relevant for modified objects
-	if changeSet.Action == ssa.ConfiguredAction {
-		err = checkInventoryPolicy(invID, inClusterObj, invPolicy)
-		if err != nil {
-			return nil, "", invPolicyFailureErr(inputObj, err)
 		}
 	}
 

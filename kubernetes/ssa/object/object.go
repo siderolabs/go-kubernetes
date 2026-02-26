@@ -7,6 +7,7 @@ package object
 
 import (
 	fluxobj "github.com/fluxcd/cli-utils/pkg/object"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // ObjMetadata is a single object metadata.
@@ -21,4 +22,10 @@ type UnstructuredSet = fluxobj.UnstructuredSet
 // ParseObjMetadata parses the given string into an ObjMetadata struct.
 func ParseObjMetadata(s string) (ObjMetadata, error) {
 	return fluxobj.ParseObjMetadata(s)
+}
+
+// RuntimeToObjMeta extracts the object metadata information from a
+// runtime.Object and returns it as ObjMetadata.
+func RuntimeToObjMeta(obj runtime.Object) (ObjMetadata, error) {
+	return fluxobj.RuntimeToObjMeta(obj)
 }

@@ -16,5 +16,10 @@ type WaitOptions = ssa.WaitOptions
 
 // Wait checks if the given set of objects has been fully reconciled.
 func (m *Manager) Wait(ctx context.Context, set object.ObjMetadataSet, opts WaitOptions) error {
+	// remove once https://github.com/fluxcd/pkg/pull/1133 is released
+	if len(set) == 0 {
+		return nil
+	}
+
 	return m.resourceManager.WaitForSetWithContext(ctx, set, opts)
 }

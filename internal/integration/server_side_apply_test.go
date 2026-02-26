@@ -259,6 +259,9 @@ func TestServerSideApply(t *testing.T) {
 		// check that the manager.Wait call blocks for at least 25 secunds
 		start := time.Now()
 
+		err = manager.Wait(t.Context(), object.ObjMetadataSet{object.UnstructuredToObjMetadata(deploy)}, fluxssa.WaitOptions{FailFast: true, Timeout: 2 * time.Second, Interval: 1 * time.Second})
+		require.ErrorContains(t, err, "timeout waiting for")
+
 		err = manager.Wait(t.Context(), object.ObjMetadataSet{object.UnstructuredToObjMetadata(deploy)}, fluxssa.WaitOptions{FailFast: true, Timeout: 1 * time.Minute, Interval: 1 * time.Second})
 		require.NoError(t, err)
 

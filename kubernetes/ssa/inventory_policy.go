@@ -64,6 +64,18 @@ const (
 	InventoryPolicyAdoptAll InventoryPolicy = "AdoptAll"
 )
 
+func ParseInventoryPolicy(policy string) (InventoryPolicy, error) {
+	p := InventoryPolicy(policy)
+
+	switch p {
+	case InventoryPolicyMustMatch, InventoryPolicyAdoptIfNoInventory, InventoryPolicyAdoptAll:
+		return p, nil
+	}
+
+	return "", fmt.Errorf("invalid inventory policy %q: must be one of %s, %s, or %s",
+		policy, InventoryPolicyMustMatch, InventoryPolicyAdoptIfNoInventory, InventoryPolicyAdoptAll)
+}
+
 type annotated interface {
 	GetAnnotations() map[string]string
 }
