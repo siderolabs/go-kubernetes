@@ -56,6 +56,10 @@ type DiffResult struct {
 
 // Diff does a server side apply dry-run and returns the resulting diff.
 func (m *Manager) Diff(ctx context.Context, objects []*unstructured.Unstructured, ops DiffOptions) ([]DiffResult, error) {
+	if ops.InventoryPolicy == "" {
+		ops.InventoryPolicy = InventoryPolicyMustMatch
+	}
+
 	result := []DiffResult{}
 
 	inv, err := m.inventory(ctx)

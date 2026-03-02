@@ -33,10 +33,12 @@ type ApplyOptions struct {
 	WaitTimeout time.Duration
 	// NoPrune defines whether pruning of previously applied objects should occur.
 	NoPrune bool
-	// ForceConflicts overwrites the fields when applying if the field manager differs.
-	ForceConflicts bool
 	// Force configures the engine to recreate objects that contain immutable field changes.
 	Force bool
+
+	// TODO: implement if ever needed (fluxcd/ssa doesn't support out of the box)
+	// ForceConflicts overwrites the fields when applying even if the field manager differs.
+	// ForceConflicts bool
 }
 
 // Action represents the type of change that occurred to an object as a result of an SSA operation.
@@ -97,7 +99,7 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 		return nil, err
 	}
 
-	setDefaultOps(&ops)
+	setDefaultApplyOps(&ops)
 
 	for _, obj := range objects {
 		_, diff, diffErr := m.diff(ctx, obj, ops.Force, ops.InventoryPolicy, inv.ID())
@@ -251,7 +253,7 @@ func (m *Manager) prepareObjects(objects []*unstructured.Unstructured, inventory
 	return nil
 }
 
-func setDefaultOps(ops *ApplyOptions) {
+func setDefaultApplyOps(ops *ApplyOptions) {
 	if ops.WaitInterval == 0 {
 		ops.WaitInterval = ssa.DefaultApplyOptions().WaitInterval
 	}
