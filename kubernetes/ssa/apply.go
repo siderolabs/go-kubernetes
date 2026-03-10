@@ -12,6 +12,7 @@ import (
 
 	"github.com/fluxcd/pkg/ssa"
 	"github.com/fluxcd/pkg/ssa/utils"
+	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -80,6 +81,8 @@ type Change struct {
 //
 //nolint:gocyclo,gocognit,cyclop
 func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructured, ops ApplyOptions) ([]Change, error) {
+	ctx = logr.NewContext(ctx, logr.FromContextOrDiscard(ctx))
+
 	// Use this map to track changes made. Return it only once the changes have been made.
 	changeMap := make(map[string]*Change)
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/fluxcd/cli-utils/pkg/object"
 	"github.com/fluxcd/pkg/ssa"
+	"github.com/go-logr/logr"
 )
 
 // WaitOptions contains options for wait requests.
@@ -16,6 +17,8 @@ type WaitOptions = ssa.WaitOptions
 
 // Wait checks if the given set of objects has been fully reconciled.
 func (m *Manager) Wait(ctx context.Context, set object.ObjMetadataSet, ops WaitOptions) error {
+	ctx = logr.NewContext(ctx, logr.FromContextOrDiscard(ctx))
+
 	if ops.Interval == 0 {
 		ops.Interval = ssa.DefaultApplyOptions().WaitInterval
 	}

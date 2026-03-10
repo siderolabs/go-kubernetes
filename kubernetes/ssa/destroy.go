@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/fluxcd/pkg/ssa"
+	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -23,6 +24,8 @@ type DestroyOptions struct {
 
 // Destroy removes all objects stored in the inventory from the cluster and then removes the inventory itself.
 func (m *Manager) Destroy(ctx context.Context, ops DestroyOptions) error {
+	ctx = logr.NewContext(ctx, logr.FromContextOrDiscard(ctx))
+
 	inv, err := m.inventory(ctx)
 	if err != nil {
 		return err

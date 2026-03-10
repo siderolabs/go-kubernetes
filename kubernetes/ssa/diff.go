@@ -11,6 +11,7 @@ import (
 
 	"github.com/fluxcd/cli-utils/pkg/object"
 	"github.com/fluxcd/pkg/ssa"
+	"github.com/go-logr/logr"
 	"github.com/siderolabs/talos/pkg/machinery/textdiff"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -56,6 +57,8 @@ type DiffResult struct {
 
 // Diff does a server side apply dry-run and returns the resulting diff.
 func (m *Manager) Diff(ctx context.Context, objects []*unstructured.Unstructured, ops DiffOptions) ([]DiffResult, error) {
+	ctx = logr.NewContext(ctx, logr.FromContextOrDiscard(ctx))
+
 	if ops.InventoryPolicy == "" {
 		ops.InventoryPolicy = InventoryPolicyMustMatch
 	}
