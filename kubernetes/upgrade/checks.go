@@ -26,9 +26,16 @@ import (
 	"k8s.io/client-go/rest"
 )
 
+// StateProvider returns a COSI state client for a specific node.
+// This allows callers to provide per-node state clients instead of relying on client.WithNode() proxying.
+//
+// The caller is responsible for managing the lifecycle of the returned state clients (e.g. closing connections).
+type StateProvider func(ctx context.Context, node string) (state.State, error)
+
 // Checks is a set of checks to run before upgrading k8s components.
 type Checks struct { //nolint:govet
 	state             state.State
+	stateProvider     StateProvider
 	k8sConfig         *rest.Config
 	controlPlaneNodes []string
 	workerNodes       []string
@@ -79,10 +86,26 @@ type componentCheck struct {
 	removedFlags []string
 }
 
-// NewChecks initializes and returns Checks.
-func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPlaneNodes, workerNodes []string, logFunc func(string, ...any)) (*Checks, error) {
+// NewChecks initializes and returns Checks that use client.WithNode() to route per-node COSI queries.
+func NewChecks(path *Path, st state.State, k8sConfig *rest.Config, controlPlaneNodes, workerNodes []string, logFunc func(string, ...any)) (*Checks, error) {
+	checks := newChecks(path, k8sConfig, controlPlaneNodes, workerNodes, logFunc)
+	checks.state = st
+
+	return checks, nil
+}
+
+// NewChecksWithStateProvider initializes and returns Checks that use the given provider to obtain per-node COSI state clients.
+//
+// The caller is responsible for managing the lifecycle of the returned state clients (e.g. closing connections).
+func NewChecksWithStateProvider(path *Path, provider StateProvider, k8sConfig *rest.Config, controlPlaneNodes, workerNodes []string, logFunc func(string, ...any)) (*Checks, error) {
+	checks := newChecks(path, k8sConfig, controlPlaneNodes, workerNodes, logFunc)
+	checks.stateProvider = provider
+
+	return checks, nil
+}
+
+func newChecks(path *Path, k8sConfig *rest.Config, controlPlaneNodes, workerNodes []string, logFunc func(string, ...any)) *Checks {
 	return &Checks{
-		state:             state,
 		k8sConfig:         k8sConfig,
 		log:               logFunc,
 		upgradePath:       path.String(),
@@ -311,7 +334,20 @@ func NewChecks(path *Path, state state.State, k8sConfig *rest.Config, controlPla
 				},
 			},
 		},
-	}, nil
+	}
+}
+
+// nodeState returns the context and state to use for querying a specific node's COSI resources.
+// When a StateProvider is set, it is used to get a per-node state client.
+// Otherwise, client.WithNode() is used to route through the shared state client.
+func (checks *Checks) nodeState(ctx context.Context, node string) (context.Context, state.State, error) {
+	if checks.stateProvider != nil {
+		st, err := checks.stateProvider(ctx, node)
+
+		return ctx, st, err
+	}
+
+	return client.WithNode(ctx, node), checks.state, nil
 }
 
 // Run executes the checks.
@@ -324,8 +360,13 @@ func (checks *Checks) Run(ctx context.Context) error {
 		checks.log("checking for removed Kubernetes component flags")
 
 		for _, node := range checks.controlPlaneNodes {
+			nodeCtx, nodeState, err := checks.nodeState(ctx, node)
+			if err != nil {
+				return err
+			}
+
 			for _, id := range []string{k8s.APIServerID, k8s.ControllerManagerID, k8s.SchedulerID} {
-				staticPod, err := safe.StateGet[*k8s.StaticPod](client.WithNode(ctx, node), checks.state, k8s.NewStaticPod(k8s.NamespaceName, id).Metadata())
+				staticPod, err := safe.StateGet[*k8s.StaticPod](nodeCtx, nodeState, k8s.NewStaticPod(k8s.NamespaceName, id).Metadata())
 				if err != nil {
 					if state.IsNotFoundError(err) {
 						continue
@@ -354,7 +395,12 @@ func (checks *Checks) Run(ctx context.Context) error {
 		}
 
 		for _, node := range append(append([]string(nil), checks.controlPlaneNodes...), checks.workerNodes...) {
-			kubeletSpec, err := safe.StateGet[*k8s.KubeletSpec](client.WithNode(ctx, node), checks.state, k8s.NewKubeletSpec(k8s.NamespaceName, k8s.KubeletID).Metadata())
+			nodeCtx, nodeState, err := checks.nodeState(ctx, node)
+			if err != nil {
+				return err
+			}
+
+			kubeletSpec, err := safe.StateGet[*k8s.KubeletSpec](nodeCtx, nodeState, k8s.NewKubeletSpec(k8s.NamespaceName, k8s.KubeletID).Metadata())
 			if err != nil {
 				if state.IsNotFoundError(err) {
 					continue

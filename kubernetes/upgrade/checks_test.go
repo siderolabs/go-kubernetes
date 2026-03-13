@@ -307,3 +307,82 @@ func TestK8sComponentRemovedItemsWithKubeletError(t *testing.T) {
 
 	assert.Equal(t, expected, removedItemsError)
 }
+
+func TestK8sComponentRemovedItemsWithStateProvider(t *testing.T) {
+	ctx, ctxCancel := context.WithTimeout(t.Context(), 3*time.Minute)
+	defer ctxCancel()
+
+	// Create separate per-node states to prove the provider dispatches correctly.
+	// node-1 has a removed flag; node-2 does not.
+	nodeStates := map[string]state.State{
+		"node-1": state.WrapCore(namespaced.NewState(inmem.Build)),
+		"node-2": state.WrapCore(namespaced.NewState(inmem.Build)),
+	}
+
+	// node-1: kube-apiserver with a removed flag (service-account-api-audiences, removed in 1.24→1.25)
+	for _, id := range []string{k8s.APIServerID, k8s.ControllerManagerID, k8s.SchedulerID} {
+		cfg := k8s.NewStaticPod(k8s.NamespaceName, id)
+
+		command := []string{"/usr/local/bin/" + id}
+		if id == k8s.APIServerID {
+			command = append(command, "--service-account-api-audiences=api")
+		}
+
+		cfg.TypedSpec().Pod = map[string]any{
+			"spec": map[string]any{
+				"containers": []any{
+					map[string]any{"command": command},
+				},
+			},
+		}
+
+		require.NoError(t, nodeStates["node-1"].Create(ctx, cfg))
+	}
+
+	// node-2: all clean, no removed flags
+	for _, id := range []string{k8s.APIServerID, k8s.ControllerManagerID, k8s.SchedulerID} {
+		cfg := k8s.NewStaticPod(k8s.NamespaceName, id)
+		cfg.TypedSpec().Pod = map[string]any{
+			"spec": map[string]any{
+				"containers": []any{
+					map[string]any{"command": []string{"/usr/local/bin/" + id}},
+				},
+			},
+		}
+
+		require.NoError(t, nodeStates["node-2"].Create(ctx, cfg))
+	}
+
+	path, err := upgrade.NewPath("1.24.3", "1.25.0")
+	require.NoError(t, err)
+
+	checks, err := upgrade.NewChecksWithStateProvider(path, func(_ context.Context, node string) (state.State, error) {
+		st, ok := nodeStates[node]
+		if !ok {
+			return nil, errors.New("unknown node: " + node)
+		}
+
+		return st, nil
+	}, nil, []string{"node-1", "node-2"}, nil, t.Logf)
+	require.NoError(t, err)
+
+	checkErrors := checks.Run(ctx)
+
+	var removedItemsError upgrade.ComponentRemovedItemsError
+	if !errors.As(checkErrors, &removedItemsError) {
+		t.Fatal("expected ComponentRemovedItemsError")
+	}
+
+	// Only node-1 should appear — node-2 has no removed flags.
+	expected := upgrade.ComponentRemovedItemsError{
+		CLIFlags: []upgrade.ComponentItem{
+			{
+				Node:      "node-1",
+				Component: "kube-apiserver",
+				Value:     "service-account-api-audiences",
+			},
+		},
+	}
+
+	assert.Equal(t, expected, removedItemsError)
+}
