@@ -13,6 +13,7 @@ import (
 	fluxssa "github.com/fluxcd/pkg/ssa"
 	"github.com/fluxcd/pkg/ssa/utils"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
@@ -28,8 +29,11 @@ type MockResourceManager interface {
 // Mock is an in-memory implementation of ssa.ResourceManager for unit tests.
 //
 // It simulates a Kubernetes cluster by storing objects in a map.
+// It tracks known GroupVersionKinds and rejects resources whose kind
+// is not registered (either as a built-in or via a CRD apply).
 type Mock struct {
-	objects map[objKey]*unstructured.Unstructured
+	objects   map[objKey]*unstructured.Unstructured
+	knownGVKs map[schema.GroupKind]bool
 }
 
 type objKey struct {
@@ -39,10 +43,89 @@ type objKey struct {
 	Name      string
 }
 
+// builtinGroupKinds are the core Kubernetes types that are always available.
+var builtinGroupKinds = []schema.GroupKind{
+	{Group: "", Kind: "ConfigMap"},
+	{Group: "", Kind: "Secret"},
+	{Group: "", Kind: "Service"},
+	{Group: "", Kind: "ServiceAccount"},
+	{Group: "", Kind: "Namespace"},
+	{Group: "", Kind: "Pod"},
+	{Group: "apps", Kind: "Deployment"},
+	{Group: "apps", Kind: "DaemonSet"},
+	{Group: "apps", Kind: "StatefulSet"},
+	{Group: "apps", Kind: "ReplicaSet"},
+	{Group: "batch", Kind: "Job"},
+	{Group: "batch", Kind: "CronJob"},
+	{Group: "rbac.authorization.k8s.io", Kind: "Role"},
+	{Group: "rbac.authorization.k8s.io", Kind: "RoleBinding"},
+	{Group: "rbac.authorization.k8s.io", Kind: "ClusterRole"},
+	{Group: "rbac.authorization.k8s.io", Kind: "ClusterRoleBinding"},
+	{Group: "apiextensions.k8s.io", Kind: "CustomResourceDefinition"},
+}
+
 // NewMock creates a new mock resource manager with an empty object store.
 func NewMock() *Mock {
+	known := make(map[schema.GroupKind]bool, len(builtinGroupKinds))
+	for _, gk := range builtinGroupKinds {
+		known[gk] = true
+	}
+
 	return &Mock{
-		objects: make(map[objKey]*unstructured.Unstructured),
+		objects:   make(map[objKey]*unstructured.Unstructured),
+		knownGVKs: known,
+	}
+}
+
+// checkKnownKind returns a NoKindMatchError if the object's GroupKind is not registered.
+// If knownGVKs is nil (e.g. when Mock is embedded without using NewMock), the check is skipped.
+func (m *Mock) checkKnownKind(obj *unstructured.Unstructured) error {
+	if m.knownGVKs == nil {
+		return nil
+	}
+
+	gvk := obj.GroupVersionKind()
+	gk := gvk.GroupKind()
+
+	if m.knownGVKs[gk] {
+		return nil
+	}
+
+	return &meta.NoKindMatchError{
+		GroupKind:        gk,
+		SearchedVersions: []string{gvk.Version},
+	}
+}
+
+// registerCRD extracts the custom resource GroupKind from a CRD object and registers it.
+func (m *Mock) registerCRD(obj *unstructured.Unstructured) {
+	gvk := obj.GroupVersionKind()
+	if gvk.Group != "apiextensions.k8s.io" || gvk.Kind != "CustomResourceDefinition" {
+		return
+	}
+
+	spec, ok := obj.Object["spec"].(map[string]any)
+	if !ok {
+		return
+	}
+
+	group, ok := spec["group"].(string)
+	if !ok {
+		return
+	}
+
+	names, ok := spec["names"].(map[string]any)
+	if !ok {
+		return
+	}
+
+	kind, ok := names["kind"].(string)
+	if !ok {
+		return
+	}
+
+	if group != "" && kind != "" {
+		m.knownGVKs[schema.GroupKind{Group: group, Kind: kind}] = true
 	}
 }
 
@@ -80,6 +163,10 @@ func (m *Mock) GetObject(group, kind, namespace, name string) *unstructured.Unst
 }
 
 func (m *Mock) Apply(_ context.Context, obj *unstructured.Unstructured, _ fluxssa.ApplyOptions) (*fluxssa.ChangeSetEntry, error) {
+	if err := m.checkKnownKind(obj); err != nil {
+		return nil, err
+	}
+
 	key := keyFromObj(obj)
 
 	action := fluxssa.CreatedAction
@@ -92,6 +179,8 @@ func (m *Mock) Apply(_ context.Context, obj *unstructured.Unstructured, _ fluxss
 	}
 
 	m.objects[key] = obj.DeepCopy()
+
+	m.registerCRD(obj)
 
 	return entryFromObj(obj, action), nil
 }
@@ -133,6 +222,10 @@ func (m *Mock) WaitForSetWithContext(ctx context.Context, set object.ObjMetadata
 func (m *Mock) Diff(_ context.Context, obj *unstructured.Unstructured, _ fluxssa.DiffOptions) (
 	*fluxssa.ChangeSetEntry, *unstructured.Unstructured, *unstructured.Unstructured, error,
 ) {
+	if err := m.checkKnownKind(obj); err != nil {
+		return nil, nil, nil, err
+	}
+
 	key := keyFromObj(obj)
 
 	existing, exists := m.objects[key]
@@ -166,7 +259,7 @@ func entryFromObj(obj *unstructured.Unstructured, action fluxssa.Action) *fluxss
 			Name:      obj.GetName(),
 			GroupKind: obj.GroupVersionKind().GroupKind(),
 		},
-		GroupVersion: obj.GetAPIVersion(),
+		GroupVersion: obj.GroupVersionKind().Version,
 		Subject:      utils.FmtUnstructured(obj),
 		Action:       action,
 	}

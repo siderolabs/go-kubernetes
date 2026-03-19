@@ -7,10 +7,12 @@ package ssa
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/fluxcd/pkg/ssa"
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -37,18 +39,26 @@ func (m *Manager) Destroy(ctx context.Context, ops DestroyOptions) error {
 
 	allInvObjects := inv.Get()
 
+	objects := make([]*unstructured.Unstructured, 0, len(allInvObjects))
+
 	for _, objMeta := range allInvObjects {
 		var obj *unstructured.Unstructured
 
 		obj, err = m.resourceManager.Get(ctx, objMeta)
 		if err != nil {
-			if apierrors.IsNotFound(err) {
+			if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
 				continue
 			}
 
 			return fmt.Errorf("failed to get object %s, %w", FormatMetaPath(objMeta), err)
 		}
 
+		objects = append(objects, obj)
+	}
+
+	sort.Sort(sort.Reverse(ssa.SortableUnstructureds(objects)))
+
+	for _, obj := range objects {
 		_, err = m.resourceManager.Delete(ctx, obj, ssa.DeleteOptions{PropagationPolicy: ops.DeletePropagationPolicy})
 		if err != nil {
 			return err

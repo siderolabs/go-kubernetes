@@ -14,6 +14,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/siderolabs/talos/pkg/machinery/textdiff"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	k8syaml "sigs.k8s.io/yaml"
 )
@@ -80,7 +81,7 @@ func (m *Manager) Diff(ctx context.Context, objects []*unstructured.Unstructured
 		for _, objMeta := range pruneObjRefs {
 			obj, err := m.resourceManager.Get(ctx, objMeta)
 			if err != nil {
-				if apierrors.IsNotFound(err) {
+				if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
 					// object doesn't exist in the cluster so it can be skipped
 					continue
 				}
@@ -148,7 +149,7 @@ func (m *Manager) diff(
 	invID string,
 ) (*ssa.ChangeSetEntry, string, error) {
 	changeSet, inClusterObj, dryRunResult, err := m.resourceManager.Diff(ctx, inputObj, ssa.DiffOptions{Force: force})
-	if err != nil && (apierrors.IsNotFound(err) || strings.Contains(err.Error(), "not found")) {
+	if err != nil && (apierrors.IsNotFound(err) || meta.IsNoMatchError(err) || strings.Contains(err.Error(), "not found")) {
 		if changeSet == nil {
 			changeSet = &ssa.ChangeSetEntry{
 				ObjMetadata:  object.UnstructuredToObjMetadata(inputObj),

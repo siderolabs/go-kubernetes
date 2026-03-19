@@ -19,6 +19,7 @@ import (
 	fluxssa "github.com/fluxcd/pkg/ssa"
 	"github.com/fluxcd/pkg/ssa/utils"
 	"github.com/siderolabs/gen/xslices"
+	"github.com/siderolabs/go-retry/retry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -46,6 +47,10 @@ var (
 	secretManifest string
 	//go:embed testdata/deployment_manifest.yml
 	deploymentManifest string
+	//go:embed testdata/widget_crd.yaml
+	widgetCRDManifest string
+	//go:embed testdata/widget.yaml
+	widgetManifest string
 )
 
 func getTestObjects(t *testing.T) (ns, cm, secret, deploy *unstructured.Unstructured) {
@@ -98,11 +103,14 @@ func TestServerSideApply(t *testing.T) {
 	// NOTE: these tests need to run in sequence in correct order
 
 	t.Run("clean up from previous runs", func(t *testing.T) {
-		err = manager.Destroy(t.Context(), ssa.DestroyOptions{DeletePropagationPolicy: metav1.DeletePropagationForeground})
+		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+		defer cancel()
+
+		err = manager.Destroy(ctx, ssa.DestroyOptions{DeletePropagationPolicy: metav1.DeletePropagationForeground})
 		require.NoError(t, err)
 
 		t.Log("wait until the namespace from previous run has fully terminated")
-		waitForResourceDeleted(t, dynamicClient, ns, mapper)
+		waitForResourceDeleted(ctx, t, dynamicClient, ns, mapper)
 	})
 
 	t.Run("deploy Namespace and ConfigMap", func(t *testing.T) {
@@ -223,7 +231,7 @@ func TestServerSideApply(t *testing.T) {
 			}
 		}
 
-		waitForResourceDeleted(t, dynamicClient, cm, mapper)
+		waitForResourceDeleted(t.Context(), t, dynamicClient, cm, mapper)
 	})
 
 	t.Run("inventory policy: unowned objects cannot be adopted with 'MustMatch' policy", func(t *testing.T) {
@@ -270,6 +278,104 @@ func TestServerSideApply(t *testing.T) {
 	})
 }
 
+func TestCRDWithCustomResourceApply(t *testing.T) {
+	kubeconfig := getKubeconfig(t)
+
+	dynamicClient, err := dynamic.NewForConfig(kubeconfig)
+	require.NoError(t, err)
+
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(kubeconfig)
+	require.NoError(t, err)
+
+	mapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(discoveryClient))
+
+	inventoryNS := "test-crd-inventory"
+	inventoryName := "test-crd-inventory"
+	manager, err := ssa.NewManager(t.Context(), kubeconfig, "crd-test-field-manager", inventoryNS, inventoryName)
+	require.NoError(t, err)
+
+	crd, err := utils.ReadObject(strings.NewReader(widgetCRDManifest))
+	require.NoError(t, err)
+
+	widget, err := utils.ReadObject(strings.NewReader(widgetManifest))
+	require.NoError(t, err)
+
+	ns, _, _, _ := getTestObjects(t)
+
+	if !skipCleanup {
+		t.Cleanup(func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+
+			require.NoError(t, manager.Destroy(cleanupCtx, ssa.DestroyOptions{DeletePropagationPolicy: metav1.DeletePropagationForeground}))
+
+			waitForResourceDeleted(cleanupCtx, t, dynamicClient, ns, mapper)
+			waitForResourceDeleted(cleanupCtx, t, dynamicClient, crd, mapper)
+		})
+	}
+
+	t.Run("clean up from previous runs", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+		defer cancel()
+
+		err = manager.Destroy(ctx, ssa.DestroyOptions{DeletePropagationPolicy: metav1.DeletePropagationForeground})
+		require.NoError(t, err)
+
+		waitForResourceDeleted(ctx, t, dynamicClient, ns, mapper)
+		waitForResourceDeleted(ctx, t, dynamicClient, crd, mapper)
+	})
+
+	t.Run("apply CRD and custom resource together", func(t *testing.T) {
+		var results []ssa.Change
+
+		err := retry.Constant(time.Second * 20).Retry(func() error {
+			var err error
+
+			results, err = manager.Apply(t.Context(), []*unstructured.Unstructured{ns, crd, widget}, ssa.ApplyOptions{})
+			if err != nil {
+				if !meta.IsNoMatchError(err) {
+					return err
+				}
+
+				mapper.Reset()
+
+				return retry.ExpectedError(err)
+			}
+
+			return nil
+		})
+		require.NoError(t, err, "failed to apply CRD and custom resource")
+		require.NotEmpty(t, results, "partial results for successfully applied objects should be returned")
+
+		resultsBySubject := map[string]ssa.Change{}
+		for _, r := range results {
+			resultsBySubject[r.Subject] = r
+		}
+
+		assert.Equal(t, ssa.CreatedAction, resultsBySubject["Widget/test-lab/my-shiny-widget"].Action)
+
+		assertResourceDeployed(t, dynamicClient, crd)
+		assertResourceDeployed(t, dynamicClient, widget)
+	})
+
+	t.Run("reapply CRD and custom resource, expect no changes", func(t *testing.T) {
+		// Re-read to get fresh objects without annotations from previous apply.
+		crd2, err := utils.ReadObject(strings.NewReader(widgetCRDManifest))
+		require.NoError(t, err)
+
+		widget2, err := utils.ReadObject(strings.NewReader(widgetManifest))
+		require.NoError(t, err)
+
+		results, err := manager.Apply(t.Context(), []*unstructured.Unstructured{ns, crd2, widget2}, ssa.ApplyOptions{})
+		require.NoError(t, err)
+		require.Len(t, results, 3)
+
+		for _, r := range results {
+			assert.Equal(t, ssa.UnchangedAction, r.Action, "expected unchanged for %s", r.Subject)
+		}
+	})
+}
+
 func assertResourceDeployed(t *testing.T, dynamicClient *dynamic.DynamicClient, obj *unstructured.Unstructured) *unstructured.Unstructured {
 	clusterObj, err := dynamicClient.Resource(
 		obj.GroupVersionKind().GroupVersion().WithResource(strings.ToLower(obj.GetKind())+"s"),
@@ -280,12 +386,18 @@ func assertResourceDeployed(t *testing.T, dynamicClient *dynamic.DynamicClient, 
 }
 
 // based on https://github.com/siderolabs/talos/blob/8b1c974a2a733c870f371ccb7a86ccc616dbc7ea/internal/integration/base/k8s.go#L876
-func waitForResourceDeleted(t *testing.T, dynamicClient *dynamic.DynamicClient, obj *unstructured.Unstructured, mapper meta.RESTMapper) {
+func waitForResourceDeleted(ctx context.Context, t *testing.T, dynamicClient *dynamic.DynamicClient, obj *unstructured.Unstructured, mapper meta.RESTMapper) {
 	t.Helper()
 
 	mapping, err := mapper.RESTMapping(obj.GetObjectKind().GroupVersionKind().GroupKind(), obj.GetObjectKind().GroupVersionKind().Version)
 	if err != nil {
-		assert.NoError(t, err, "error creating mapping for object %s", obj.GetName())
+		if meta.IsNoMatchError(err) {
+			t.Logf("resource type %s not found in RESTMapper, assuming crd wasn't applied", obj.GetKind())
+
+			return
+		}
+
+		require.NoError(t, err, "error creating mapping for object %s", obj.GetName())
 	}
 
 	dr := dynamicClient.Resource(mapping.Resource).Namespace(obj.GetNamespace())
@@ -295,12 +407,12 @@ func waitForResourceDeleted(t *testing.T, dynamicClient *dynamic.DynamicClient, 
 		ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
 			options.FieldSelector = fieldSelector
 
-			return dr.List(t.Context(), options)
+			return dr.List(ctx, options)
 		},
 		WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
 			options.FieldSelector = fieldSelector
 
-			return dr.Watch(t.Context(), options)
+			return dr.Watch(ctx, options)
 		},
 	}
 
@@ -320,7 +432,7 @@ func waitForResourceDeleted(t *testing.T, dynamicClient *dynamic.DynamicClient, 
 		return false, nil
 	}
 
-	watchCtx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	watchCtx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
 	_, err = watchtools.UntilWithSync(watchCtx, lw, &unstructured.Unstructured{}, preconditionFunc, func(event watch.Event) (bool, error) {

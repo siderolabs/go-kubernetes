@@ -7,6 +7,7 @@ package ssa_test
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"testing"
 
@@ -14,11 +15,22 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	sigsyaml "sigs.k8s.io/yaml"
 
 	"github.com/siderolabs/go-kubernetes/kubernetes/ssa"
 	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/internal/inventory/memory"
 	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/internal/resourcemanager"
 )
+
+type mapperMock struct{}
+
+func (m *mapperMock) Reset() {}
+
+//go:embed testdata/widget.yaml
+var widgetYAML []byte
+
+//go:embed testdata/widget_crd.yaml
+var widgetCRDYAML []byte
 
 func testInventoryClosure(_ context.Context, inv ssa.Inventory) ssa.InventoryFactory {
 	return func(context.Context) (ssa.Inventory, error) {
@@ -32,7 +44,7 @@ func testInventoryFactory(context.Context) (ssa.Inventory, error) {
 
 func TestCreateAllNew(t *testing.T) {
 	rm := resourcemanager.NewMock()
-	manager := ssa.NewCustomManager(rm, testInventoryFactory, nil)
+	manager := ssa.NewCustomManager(rm, testInventoryFactory, nil, &mapperMock{})
 	obj := getConfigmapManifest("test-cm")
 
 	results, err := manager.Apply(t.Context(), []*unstructured.Unstructured{obj}, ssa.ApplyOptions{})
@@ -62,7 +74,7 @@ func (m brokenApplyResourceManager) ApplyAllStaged(ctx context.Context, objects 
 func TestApplyError(t *testing.T) {
 	rm := &brokenApplyResourceManager{}
 	inv := memory.NewInventory("test-inventory")
-	manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
+	manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil, &mapperMock{})
 	obj1 := getConfigmapManifest("configmap1")
 	obj2 := getConfigmapManifest("configmap2")
 
@@ -79,7 +91,7 @@ func TestApplyError(t *testing.T) {
 func TestApplyError_No_Prune(t *testing.T) {
 	rm := &brokenApplyResourceManager{}
 	inv := memory.NewInventory("test-inventory")
-	manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
+	manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil, &mapperMock{})
 	obj1 := getConfigmapManifest("configmap1")
 	obj2 := getConfigmapManifest("configmap2")
 	existingObj := getConfigmapManifest("prune-configmap")
@@ -101,7 +113,7 @@ func TestApplyError_No_Prune(t *testing.T) {
 func TestResultDiff(t *testing.T) {
 	rm := resourcemanager.NewMock()
 	inv := memory.NewInventory("test-inventory")
-	manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
+	manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil, &mapperMock{})
 
 	existingObj := &unstructured.Unstructured{
 		Object: map[string]any{
@@ -174,7 +186,7 @@ func TestInventoryErrors(t *testing.T) {
 			Inventory: *memory.NewInventory("test-inventory"),
 			writeErr:  writeErr,
 		}
-		manager := ssa.NewCustomManager(rm, func(ctx context.Context) (ssa.Inventory, error) { return inv, nil }, nil)
+		manager := ssa.NewCustomManager(rm, func(ctx context.Context) (ssa.Inventory, error) { return inv, nil }, nil, &mapperMock{})
 
 		obj := getConfigmapManifest("test-cm")
 
@@ -195,7 +207,7 @@ func TestInventoryErrors(t *testing.T) {
 			Inventory: *memory.NewInventory("test-inventory"),
 			writeErr:  writeErr,
 		}
-		manager := ssa.NewCustomManager(rm, func(ctx context.Context) (ssa.Inventory, error) { return inv, nil }, nil)
+		manager := ssa.NewCustomManager(rm, func(ctx context.Context) (ssa.Inventory, error) { return inv, nil }, nil, &mapperMock{})
 
 		pruneObj := getConfigmapManifest("should-not-be-pruned")
 		// Seed existing object directly into the resource manager since broken inventory can't Write.
@@ -216,7 +228,7 @@ func TestInventoryPolicy(t *testing.T) {
 		// The pre-apply check rejects objects that already carry a different inventory
 		// annotation, regardless of the inventory policy.
 		rm := resourcemanager.NewMock()
-		manager := ssa.NewCustomManager(rm, testInventoryFactory, nil)
+		manager := ssa.NewCustomManager(rm, testInventoryFactory, nil, &mapperMock{})
 
 		obj := getConfigmapManifest("test-cm")
 		obj.SetAnnotations(map[string]string{
@@ -233,7 +245,7 @@ func TestInventoryPolicy(t *testing.T) {
 	t.Run("policy_failure_prevents_all_applies", func(t *testing.T) {
 		// When one object fails the policy check, NO objects should be applied.
 		rm := resourcemanager.NewMock()
-		manager := ssa.NewCustomManager(rm, testInventoryFactory, nil)
+		manager := ssa.NewCustomManager(rm, testInventoryFactory, nil, &mapperMock{})
 
 		// This object exists in the cluster with a foreign annotation — will fail MustMatch.
 		foreignObj := getConfigmapManifest("foreign-cm")
@@ -258,7 +270,7 @@ func TestInventoryPolicy(t *testing.T) {
 	t.Run("policy_failure_prevents_pruning", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
+		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil, &mapperMock{})
 		pruneObj := getConfigmapManifest("prune-cm")
 		pruneObj.SetAnnotations(map[string]string{ssa.InventoryAnnotationKey: "foreign-inventory"})
 
@@ -305,7 +317,7 @@ func TestApplyEdgeCases(t *testing.T) {
 		// Re-applying the same objects should not duplicate inventory entries.
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
+		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil, &mapperMock{})
 
 		obj := getConfigmapManifest("test-cm")
 
@@ -330,7 +342,7 @@ func TestApplyEdgeCases(t *testing.T) {
 	t.Run("diff_error", func(t *testing.T) {
 		// A non-NotFound error from Diff should abort Apply before any objects are applied.
 		rm := &brokenDiffResourceManager{}
-		manager := ssa.NewCustomManager(rm, testInventoryFactory, nil)
+		manager := ssa.NewCustomManager(rm, testInventoryFactory, nil, &mapperMock{})
 
 		obj := getConfigmapManifest("test-cm")
 
@@ -348,7 +360,7 @@ func TestApplyEdgeCases(t *testing.T) {
 		// When Delete fails during pruning, the error should be returned without the change result.
 		rm := &brokenDeleteResourceManager{}
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
+		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil, &mapperMock{})
 
 		pruneObj := getConfigmapManifest("old-cm")
 		setExistingObjects(t, &rm.Mock, inv, pruneObj)
@@ -364,10 +376,40 @@ func TestApplyEdgeCases(t *testing.T) {
 		assert.Equal(t, "old-cm", invContents[0].Name)
 	})
 
+	t.Run("custom_resource_apply", func(t *testing.T) {
+		// CRDs and their custom resources should be applied successfully in the same Apply call, even though the CRD doesn't exist at the time of diff.
+		rm := resourcemanager.NewMock()
+		manager := ssa.NewCustomManager(rm, testInventoryFactory, nil, &mapperMock{})
+
+		crd := &unstructured.Unstructured{}
+		require.NoError(t, sigsyaml.Unmarshal(widgetCRDYAML, &crd.Object))
+
+		widget := &unstructured.Unstructured{}
+		require.NoError(t, sigsyaml.Unmarshal(widgetYAML, &widget.Object))
+
+		results, err := manager.Apply(t.Context(), []*unstructured.Unstructured{crd, widget}, ssa.ApplyOptions{})
+		require.NoError(t, err)
+		require.Len(t, results, 2)
+
+		resultsBySubject := map[string]ssa.Change{}
+		for _, r := range results {
+			resultsBySubject[r.Subject] = r
+		}
+
+		assert.Equal(t, ssa.CreatedAction, resultsBySubject["CustomResourceDefinition/widgets.stable.example.com"].Action)
+		assert.Equal(t, ssa.CreatedAction, resultsBySubject["Widget/my-shiny-widget"].Action)
+
+		appliedCRD := rm.GetObject("apiextensions.k8s.io", "CustomResourceDefinition", "", "widgets.stable.example.com")
+		require.NotNil(t, appliedCRD)
+
+		appliedWidget := rm.GetObject("stable.example.com", "Widget", "", "my-shiny-widget")
+		require.NotNil(t, appliedWidget)
+	})
+
 	t.Run("no_prune_option", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
+		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil, &mapperMock{})
 
 		pruneObj := getConfigmapManifest("old-cm")
 		setExistingObjects(t, rm, inv, pruneObj)

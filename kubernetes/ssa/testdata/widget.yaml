@@ -1,0 +1,6 @@
+apiVersion: "stable.example.com/v1"
+kind: Widget
+metadata:
+  name: my-shiny-widget
+spec:
+  color: "electric-blue"

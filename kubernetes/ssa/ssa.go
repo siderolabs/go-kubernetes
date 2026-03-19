@@ -37,11 +37,16 @@ type InventoryBackedManager interface {
 // InventoryFactory creates inventory objects.
 type InventoryFactory func(ctx context.Context) (Inventory, error)
 
+type restMapper interface {
+	Reset()
+}
+
 // Manager is the default Manager implementation.
 type Manager struct {
 	resourceManager  ResourceManager
 	inventoryFactory InventoryFactory
 	httpClient       *http.Client
+	mapper           restMapper
 }
 
 // inventory returns the inventory object for the manager.
@@ -65,11 +70,12 @@ type ResourceManager interface {
 }
 
 // NewCustomManager creates a new manager with specified resource manager and inventory.
-func NewCustomManager(resourceManager ResourceManager, inventoryFactory InventoryFactory, httpClient *http.Client) *Manager {
+func NewCustomManager(resourceManager ResourceManager, inventoryFactory InventoryFactory, httpClient *http.Client, mapper restMapper) *Manager {
 	return &Manager{
 		resourceManager:  resourceManager,
 		inventoryFactory: inventoryFactory,
 		httpClient:       httpClient,
+		mapper:           mapper,
 	}
 }
 
@@ -114,7 +120,7 @@ func NewManager(ctx context.Context, kubeconfig *rest.Config, fieldManagerName, 
 		mapper:     mapper,
 	}
 
-	return NewCustomManager(resourceManager, inventoryFactory, httpClient), nil
+	return NewCustomManager(resourceManager, inventoryFactory, httpClient, mapper), nil
 }
 
 // Close performs any necessary cleanup, such as closing the HTTP connections.

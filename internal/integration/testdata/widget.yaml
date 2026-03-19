@@ -1,0 +1,7 @@
+apiVersion: "stable.example.com/v1"
+kind: Widget
+metadata:
+  name: my-shiny-widget
+  namespace: test-lab
+spec:
+  color: "electric-blue"

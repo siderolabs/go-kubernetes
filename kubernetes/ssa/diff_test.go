@@ -29,7 +29,7 @@ func TestManager_Diff(t *testing.T) {
 
 	t.Run("CreateAction", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
-		manager := ssa.NewCustomManager(rm, testInventoryFactory, nil)
+		manager := ssa.NewCustomManager(rm, testInventoryFactory, nil, &mapperMock{})
 
 		obj := &unstructured.Unstructured{
 			Object: map[string]any{
@@ -58,7 +58,7 @@ func TestManager_Diff(t *testing.T) {
 	t.Run("ModifyAction", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
+		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil, &mapperMock{})
 
 		existingObj := &unstructured.Unstructured{
 			Object: map[string]any{
@@ -99,7 +99,7 @@ func TestManager_Diff(t *testing.T) {
 	t.Run("Unchanged", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
+		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil, &mapperMock{})
 
 		obj := &unstructured.Unstructured{
 			Object: map[string]any{
@@ -134,7 +134,7 @@ func TestManager_Diff(t *testing.T) {
 	t.Run("PruneAction", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
+		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil, &mapperMock{})
 
 		// Object in inventory but not in applied objects
 		pruneObj := &unstructured.Unstructured{
@@ -167,7 +167,7 @@ func TestManager_Diff(t *testing.T) {
 	t.Run("NoPrune_option", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
+		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil, &mapperMock{})
 
 		pruneObj := &unstructured.Unstructured{
 			Object: map[string]any{
@@ -190,7 +190,7 @@ func TestManager_Diff(t *testing.T) {
 	t.Run("Diff_Render_Snapshot", func(t *testing.T) {
 		rm := resourcemanager.NewMock()
 		inv := memory.NewInventory("test-inventory")
-		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil)
+		manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil, &mapperMock{})
 
 		inputObject := &unstructured.Unstructured{
 			Object: map[string]any{

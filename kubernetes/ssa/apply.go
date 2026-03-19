@@ -95,11 +95,11 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 
 	inv, err := m.inventory(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get inventory, %w", err)
 	}
 
 	if err = m.prepareObjects(objects, inv.ID()); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to prepare objects for apply, %w", err)
 	}
 
 	setDefaultApplyOps(&ops)
@@ -107,10 +107,16 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 	for _, obj := range objects {
 		_, diff, diffErr := m.diff(ctx, obj, ops.Force, ops.InventoryPolicy, inv.ID())
 		if diffErr != nil {
-			return nil, diffErr
+			return nil, fmt.Errorf("failed to diff object %s, %w", FormatObjectPathWithGV(obj), diffErr)
 		}
 
 		changeMap[FormatObjectPathWithGV(obj)].Diff = diff
+	}
+
+	// invalidate the RESTMapper cache to avoid potential "no matches for kind" errors during apply
+	// when CRDs are applied alongside their custom resources
+	if containsCRDs(objects) {
+		m.mapper.Reset()
 	}
 
 	changeSet, applyErr := m.resourceManager.ApplyAllStaged(ctx, objects, ssa.ApplyOptions{
@@ -119,7 +125,7 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 		WaitTimeout:  ops.WaitTimeout,
 	})
 	if applyErr != nil && changeSet == nil {
-		return nil, applyErr
+		return nil, fmt.Errorf("apply failed: %w", applyErr)
 	}
 
 	inventoryObjRefs := inv.Get()
@@ -304,4 +310,15 @@ func changesMapToArray(changeMap map[string]*Change) []Change {
 	}
 
 	return changes
+}
+
+func containsCRDs(objects []*unstructured.Unstructured) bool {
+	for _, obj := range objects {
+		gvk := obj.GroupVersionKind()
+		if gvk.Group == "apiextensions.k8s.io" && gvk.Kind == "CustomResourceDefinition" {
+			return true
+		}
+	}
+
+	return false
 }
