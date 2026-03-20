@@ -265,7 +265,7 @@ func TestManager_Diff(t *testing.T) {
 func setExistingObjects(t *testing.T, rm resourcemanager.MockResourceManager, inv *memory.Inventory, existingObjs ...*unstructured.Unstructured) {
 	rm.SetObjects(existingObjs...)
 
-	metadataSet := object.ObjMetadataSet{}
+	metadataSet := object.ObjMetadataSet{} //nolint:prealloc // this is a test
 
 	for _, o := range existingObjs {
 		metadataSet = append(metadataSet, getObjectMetadataSet(o)...)

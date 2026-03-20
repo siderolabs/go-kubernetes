@@ -329,6 +329,7 @@ func newChecks(path *Path, k8sConfig *rest.Config, controlPlaneNodes, workerNode
 				// TODO: update this with the final list of removed items once the 1.36 release notes are published
 				removedFeatureGates: []string{
 					"CSIMigrationPortworx",                   // https://github.com/kubernetes/kubernetes/pull/135322
+					"HonorPVReclaimPolicy",                   // https://github.com/kubernetes/kubernetes/pull/135335
 					"InTreePluginPortworxUnregister",         // https://github.com/kubernetes/kubernetes/pull/135322
 					"WatchFromStorageWithoutResourceVersion", // https://github.com/kubernetes/kubernetes/pull/136066
 				},
