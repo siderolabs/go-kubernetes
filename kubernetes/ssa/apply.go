@@ -8,15 +8,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/fluxcd/pkg/ssa"
 	"github.com/fluxcd/pkg/ssa/utils"
 	"github.com/go-logr/logr"
+	"github.com/siderolabs/go-retry/retry"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"github.com/siderolabs/go-kubernetes/kubernetes"
 	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/object"
 )
 
@@ -119,10 +122,29 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 		m.mapper.Reset()
 	}
 
-	changeSet, applyErr := m.resourceManager.ApplyAllStaged(ctx, objects, ssa.ApplyOptions{
-		Force:        ops.Force,
-		WaitInterval: ops.WaitInterval,
-		WaitTimeout:  ops.WaitTimeout,
+	changeSet := ssa.NewChangeSet()
+
+	applyErr := retry.Constant(3*time.Minute, retry.WithUnits(10*time.Second), retry.WithErrorLogging(true)).RetryWithContext(ctx, func(ctx context.Context) error {
+		var result *ssa.ChangeSet
+
+		result, err = m.resourceManager.ApplyAllStaged(ctx, objects, ssa.ApplyOptions{
+			Force:        ops.Force,
+			WaitInterval: ops.WaitInterval,
+			WaitTimeout:  ops.WaitTimeout,
+		})
+
+		// only push new results to avoid "unchanged" results for objects that were already applied
+		for _, entry := range result.Entries {
+			if !slices.ContainsFunc(changeSet.Entries, func(e ssa.ChangeSetEntry) bool { return e.Subject == entry.Subject }) {
+				changeSet.Add(entry)
+			}
+		}
+
+		if kubernetes.IsRetryableError(err) {
+			return retry.ExpectedError(err)
+		}
+
+		return err
 	})
 	if applyErr != nil && changeSet == nil {
 		return nil, fmt.Errorf("apply failed: %w", applyErr)

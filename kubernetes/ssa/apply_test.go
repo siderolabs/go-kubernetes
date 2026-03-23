@@ -9,11 +9,13 @@ import (
 	"context"
 	_ "embed"
 	"errors"
+	"sync/atomic"
 	"testing"
 
 	fluxssa "github.com/fluxcd/pkg/ssa"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	sigsyaml "sigs.k8s.io/yaml"
 
@@ -79,7 +81,7 @@ func TestApplyError(t *testing.T) {
 	obj2 := getConfigmapManifest("configmap2")
 
 	results, err := manager.Apply(t.Context(), []*unstructured.Unstructured{obj1, obj2}, ssa.ApplyOptions{})
-	require.EqualError(t, err, "apply failed", "the manager should return the error from the resourceManager apply")
+	require.ErrorContains(t, err, "apply failed", "the manager should return the error from the resourceManager apply")
 
 	require.Len(t, results, 1, "results for applied objects should exist")
 
@@ -424,6 +426,59 @@ func TestApplyEdgeCases(t *testing.T) {
 		invContents := inv.Get()
 		require.Len(t, invContents, 1, "object should remain in inventory")
 	})
+}
+
+// transientFailResourceManager fails ApplyAllStaged with a retryable internal error
+// for the first N calls, then delegates to the embedded Mock.
+type transientFailResourceManager struct {
+	resourcemanager.Mock
+	remaining atomic.Int32
+}
+
+func (m *transientFailResourceManager) ApplyAllStaged(ctx context.Context, objects []*unstructured.Unstructured, opts fluxssa.ApplyOptions) (*fluxssa.ChangeSet, error) {
+	if m.remaining.Add(-1) >= 0 {
+		// Apply the first object successfully, then return a retryable error.
+		cs := fluxssa.NewChangeSet()
+
+		entry, err := m.Apply(ctx, objects[0], opts)
+		if err != nil {
+			return cs, err
+		}
+
+		cs.Add(*entry)
+
+		return cs, apierrors.NewInternalError(errors.New("transient API server error"))
+	}
+
+	return m.Mock.ApplyAllStaged(ctx, objects, opts)
+}
+
+func TestApplyRetry(t *testing.T) {
+	// First attempt: cm-1 applied successfully, cm-2 fails with conflict.
+	// Second attempt: both succeed. Verify results are correct and not duplicated.
+	rm := &transientFailResourceManager{}
+	rm.remaining.Store(1)
+
+	inv := memory.NewInventory("test-inventory")
+	manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil, &mapperMock{})
+
+	obj1 := getConfigmapManifest("cm-1")
+	obj2 := getConfigmapManifest("cm-2")
+
+	results, err := manager.Apply(t.Context(), []*unstructured.Unstructured{obj1, obj2}, ssa.ApplyOptions{})
+	require.NoError(t, err)
+	require.Len(t, results, 2, "each object should appear exactly once in results")
+
+	resultsByName := map[string]ssa.Change{}
+	for _, r := range results {
+		resultsByName[r.ObjMetadata.Name] = r
+	}
+
+	assert.Equal(t, ssa.CreatedAction, resultsByName["cm-1"].Action)
+	assert.Equal(t, ssa.CreatedAction, resultsByName["cm-2"].Action)
+
+	invContents := inv.Get()
+	require.Len(t, invContents, 2, "both objects should be in inventory after successful retry")
 }
 
 func getConfigmapManifest(name string) *unstructured.Unstructured {

@@ -8,15 +8,19 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/fluxcd/cli-utils/pkg/object"
 	"github.com/fluxcd/pkg/ssa"
 	"github.com/go-logr/logr"
+	"github.com/siderolabs/go-retry/retry"
 	"github.com/siderolabs/talos/pkg/machinery/textdiff"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	k8syaml "sigs.k8s.io/yaml"
+
+	"github.com/siderolabs/go-kubernetes/kubernetes"
 )
 
 // DiffOptions defines the options for the Diff method.
@@ -148,7 +152,24 @@ func (m *Manager) diff(
 	invPolicy InventoryPolicy,
 	invID string,
 ) (*ssa.ChangeSetEntry, string, error) {
-	changeSet, inClusterObj, dryRunResult, err := m.resourceManager.Diff(ctx, inputObj, ssa.DiffOptions{Force: force})
+	var (
+		changeSet    *ssa.ChangeSetEntry
+		inClusterObj *unstructured.Unstructured
+		dryRunResult *unstructured.Unstructured
+	)
+
+	err := retry.Constant(30*time.Second, retry.WithUnits(5*time.Second), retry.WithErrorLogging(true)).RetryWithContext(ctx, func(ctx context.Context) error {
+		var err error
+
+		changeSet, inClusterObj, dryRunResult, err = m.resourceManager.Diff(ctx, inputObj, ssa.DiffOptions{Force: force})
+
+		if kubernetes.IsRetryableError(err) {
+			return retry.ExpectedError(err)
+		}
+
+		return err
+	})
+
 	if err != nil && (apierrors.IsNotFound(err) || meta.IsNoMatchError(err) || strings.Contains(err.Error(), "not found")) {
 		if changeSet == nil {
 			changeSet = &ssa.ChangeSetEntry{
