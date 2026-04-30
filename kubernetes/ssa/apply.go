@@ -87,13 +87,16 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 	ctx = logr.NewContext(ctx, logr.FromContextOrDiscard(ctx))
 
 	// Use this map to track changes made. Return it only once the changes have been made.
-	changeMap := make(map[string]*Change)
+	// Keyed by ObjMetadata (group/kind/namespace/name) to avoid lookup mismatches when
+	// the API server's dry-run response carries a different apiVersion than the input
+	// object — e.g., for CRs whose CRD has multiple versions or a conversion webhook.
+	changeMap := make(map[object.ObjMetadata]*Change)
 
 	// prepare the map
 	for _, obj := range objects {
 		// use UnknownAction state as a placeholder for unchanged actions and remove them later
 		change := changeFromObject(obj, "", ssa.UnknownAction)
-		changeMap[FormatObjectPathWithGV(obj)] = &change
+		changeMap[change.ObjMetadata] = &change
 	}
 
 	inv, err := m.inventory(ctx)
@@ -113,7 +116,11 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 			return nil, fmt.Errorf("failed to diff object %s, %w", FormatObjectPathWithGV(obj), diffErr)
 		}
 
-		changeMap[FormatObjectPathWithGV(obj)].Diff = diff
+		changeMap[object.ObjMetadata{
+			Namespace: obj.GetNamespace(),
+			Name:      obj.GetName(),
+			GroupKind: obj.GroupVersionKind().GroupKind(),
+		}].Diff = diff
 	}
 
 	// invalidate the RESTMapper cache to avoid potential "no matches for kind" errors during apply
@@ -157,7 +164,9 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 	for _, e := range changeSet.Entries {
 		switch e.Action {
 		case ssa.ConfiguredAction, ssa.CreatedAction, ssa.SkippedAction, ssa.UnchangedAction:
-			changeMap[FormatObjectMetaPath(e.ObjMetadata, e.GroupVersion)].Action = e.Action
+			if c, ok := changeMap[e.ObjMetadata]; ok {
+				c.Action = e.Action
+			}
 
 			if inventoryObjRefs.Contains(e.ObjMetadata) {
 				continue
@@ -223,7 +232,7 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 		}
 
 		change := changeFromObject(obj, diff, ssa.DeletedAction)
-		changeMap[FormatObjectPathWithGV(obj)] = &change
+		changeMap[change.ObjMetadata] = &change
 	}
 
 	inv.Update(inventoryObjRefs)
@@ -318,7 +327,7 @@ func changeFromObject(obj *unstructured.Unstructured, diff string, action Action
 	}
 }
 
-func changesMapToArray(changeMap map[string]*Change) []Change {
+func changesMapToArray(changeMap map[object.ObjMetadata]*Change) []Change {
 	changes := []Change{}
 
 	for _, c := range changeMap {
