@@ -17,11 +17,13 @@ import (
 	"github.com/stretchr/testify/require"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	sigsyaml "sigs.k8s.io/yaml"
 
 	"github.com/siderolabs/go-kubernetes/kubernetes/ssa"
 	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/internal/inventory/memory"
 	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/internal/resourcemanager"
+	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/object"
 )
 
 type mapperMock struct{}
@@ -479,6 +481,116 @@ func TestApplyRetry(t *testing.T) {
 
 	invContents := inv.Get()
 	require.Len(t, invContents, 2, "both objects should be in inventory after successful retry")
+}
+
+// versionRewritingResourceManager wraps Mock and rewrites the GroupVersion field on every
+// returned ChangeSetEntry. This simulates a Kubernetes API server returning an apply
+// response with a different apiVersion than the request — the situation that arises when
+// a CRD has multiple stored versions or a conversion webhook configured, and was the cause
+// of the panic reported in siderolabs/talos#13254.
+type versionRewritingResourceManager struct {
+	resourcemanager.Mock
+	rewriteVersion string
+}
+
+func (m *versionRewritingResourceManager) ApplyAllStaged(ctx context.Context, objects []*unstructured.Unstructured, opts fluxssa.ApplyOptions) (*fluxssa.ChangeSet, error) {
+	cs, err := m.Mock.ApplyAllStaged(ctx, objects, opts)
+	if cs != nil {
+		for i := range cs.Entries {
+			cs.Entries[i].GroupVersion = m.rewriteVersion
+		}
+	}
+
+	return cs, err
+}
+
+func TestApplyVersionMismatch(t *testing.T) {
+	// Regression test for siderolabs/talos#13254. Before the fix the change map was
+	// keyed by a path string that included the apiVersion: the insert used the input
+	// object's version, but the lookup used the version reported by the apply result.
+	// When those differed (e.g. a CR whose dry-run response is normalized to the CRD's
+	// storage version), the lookup returned nil and writing to .Action/.Diff segfaulted.
+	rm := &versionRewritingResourceManager{rewriteVersion: "v1beta1"}
+	inv := memory.NewInventory("test-inventory")
+	manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil, &mapperMock{})
+
+	// Input object has apiVersion v1; the resource manager reports GroupVersion=v1beta1.
+	obj := getConfigmapManifest("version-flip-cm")
+
+	results, err := manager.Apply(t.Context(), []*unstructured.Unstructured{obj}, ssa.ApplyOptions{})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+
+	// Both Action and Diff must be set on the change, even though the apply result
+	// carried a different apiVersion than the input object.
+	assert.Equal(t, ssa.CreatedAction, results[0].Action,
+		"Action must be set when apply result has a different apiVersion than the input")
+	assert.NotEmpty(t, results[0].Diff,
+		"Diff must be set when apply result has a different apiVersion than the input")
+	assert.Equal(t, "version-flip-cm", results[0].ObjMetadata.Name)
+	assert.Equal(t, "ConfigMap", results[0].ObjMetadata.GroupKind.Kind)
+
+	// The object should also be tracked in the inventory.
+	invContents := inv.Get()
+	require.Len(t, invContents, 1)
+	assert.Equal(t, "version-flip-cm", invContents[0].Name)
+}
+
+// extraEntryResourceManager wraps Mock and appends an extra ChangeSetEntry to the
+// returned ChangeSet that doesn't correspond to any input object. This simulates a
+// resource manager reporting an apply for an object whose ObjMetadata isn't tracked
+// by the change map.
+type extraEntryResourceManager struct {
+	resourcemanager.Mock
+	extra fluxssa.ChangeSetEntry
+}
+
+func (m *extraEntryResourceManager) ApplyAllStaged(ctx context.Context, objects []*unstructured.Unstructured, opts fluxssa.ApplyOptions) (*fluxssa.ChangeSet, error) {
+	cs, err := m.Mock.ApplyAllStaged(ctx, objects, opts)
+	if cs != nil {
+		cs.Add(m.extra)
+	}
+
+	return cs, err
+}
+
+func TestApplyUnexpectedEntry(t *testing.T) {
+	// When the resourceManager reports a result for an object outside the input set,
+	// Apply should surface it as an error and still record the change instead of
+	// silently dropping it.
+	rm := &extraEntryResourceManager{
+		extra: fluxssa.ChangeSetEntry{
+			ObjMetadata: object.ObjMetadata{
+				Namespace: "default",
+				Name:      "ghost-cm",
+				GroupKind: schema.GroupKind{Kind: "ConfigMap"},
+			},
+			GroupVersion: "v1",
+			Subject:      "ConfigMap/default/ghost-cm",
+			Action:       fluxssa.CreatedAction,
+		},
+	}
+	inv := memory.NewInventory("test-inventory")
+	manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil, &mapperMock{})
+
+	obj := getConfigmapManifest("real-cm")
+
+	results, err := manager.Apply(t.Context(), []*unstructured.Unstructured{obj}, ssa.ApplyOptions{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unexpected object")
+	assert.Contains(t, err.Error(), "ConfigMap/default/ghost-cm")
+
+	// Both the real object and the unexpected ghost entry should appear in results
+	// so that the caller can observe what the resource manager reported.
+	resultsByName := map[string]ssa.Change{}
+	for _, r := range results {
+		resultsByName[r.ObjMetadata.Name] = r
+	}
+
+	require.Len(t, resultsByName, 2)
+	assert.Equal(t, ssa.CreatedAction, resultsByName["real-cm"].Action)
+	assert.Equal(t, ssa.CreatedAction, resultsByName["ghost-cm"].Action)
+	assert.Equal(t, "ConfigMap/default/ghost-cm", resultsByName["ghost-cm"].Subject)
 }
 
 func getConfigmapManifest(name string) *unstructured.Unstructured {
