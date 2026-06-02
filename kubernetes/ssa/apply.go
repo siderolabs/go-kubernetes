@@ -92,13 +92,6 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 	// object — e.g., for CRs whose CRD has multiple versions or a conversion webhook.
 	changeMap := make(map[object.ObjMetadata]*Change)
 
-	// prepare the map
-	for _, obj := range objects {
-		// use UnknownAction state as a placeholder for unchanged actions and remove them later
-		change := changeFromObject(obj, "", ssa.UnknownAction)
-		changeMap[change.ObjMetadata] = &change
-	}
-
 	inv, err := m.inventory(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get inventory, %w", err)
@@ -110,17 +103,15 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 
 	setDefaultApplyOps(&ops)
 
+	diffMap := make(map[object.ObjMetadata]string)
+
 	for _, obj := range objects {
-		_, diff, diffErr := m.diff(ctx, obj, ops.Force, ops.InventoryPolicy, inv.ID())
+		changeSet, diff, diffErr := m.diff(ctx, obj, ops.Force, ops.InventoryPolicy, inv.ID())
 		if diffErr != nil {
 			return nil, fmt.Errorf("failed to diff object %s, %w", FormatObjectPathWithGV(obj), diffErr)
 		}
 
-		changeMap[object.ObjMetadata{
-			Namespace: obj.GetNamespace(),
-			Name:      obj.GetName(),
-			GroupKind: obj.GroupVersionKind().GroupKind(),
-		}].Diff = diff
+		diffMap[changeSet.ObjMetadata] = diff
 	}
 
 	// invalidate the RESTMapper cache to avoid potential "no matches for kind" errors during apply
@@ -164,25 +155,26 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 	for _, e := range changeSet.Entries {
 		switch e.Action {
 		case ssa.ConfiguredAction, ssa.CreatedAction, ssa.SkippedAction, ssa.UnchangedAction:
-			c, ok := changeMap[e.ObjMetadata]
-			if !ok {
-				// resourceManager returned a result for an object that wasn't in the input
-				// set (or whose identity differs from what we sent). Record the change so
-				// it isn't silently dropped, and surface the unexpected case as an error.
+			diff, ok := diffMap[e.ObjMetadata]
+			// Cluster spaced resource might have had a namespace set by the user, search for a match ignoring the namespace
+			if !ok && e.ObjMetadata.Namespace == "" {
+				for diffMeta, d := range diffMap {
+					if diffMeta.GroupKind == e.ObjMetadata.GroupKind && diffMeta.Name == e.ObjMetadata.Name {
+						diff = d
+					}
+				}
+			} else if !ok {
 				invErr = errors.Join(invErr, fmt.Errorf("resourceManager returned %q for unexpected object %s", e.Action, e.Subject))
-
-				change := Change{ChangeSetEntry: ChangeSetEntry(e)}
-				c = &change
-				changeMap[e.ObjMetadata] = c
 			}
 
-			c.Action = e.Action
+			change := &Change{ChangeSetEntry: ChangeSetEntry(e)}
+			change.Diff = diff
+			change.Action = e.Action
+			changeMap[e.ObjMetadata] = change
 
-			if inventoryObjRefs.Contains(e.ObjMetadata) {
-				continue
+			if !inventoryObjRefs.Contains(e.ObjMetadata) {
+				inventoryObjRefs = append(inventoryObjRefs, e.ObjMetadata)
 			}
-
-			inventoryObjRefs = append(inventoryObjRefs, e.ObjMetadata)
 		// should never happen
 		case ssa.DeletedAction, ssa.UnknownAction:
 			invErr = errors.Join(invErr, fmt.Errorf("unexpected %q action taken by resourceManager for resource %s", e.Action, e.Subject))
@@ -262,11 +254,12 @@ func calculatePruneObjects(inventoryObjRefs object.ObjMetadataSet, objects []*un
 		found := false
 
 		for _, obj := range objects {
-			if ref.Equals(&object.ObjMetadata{
-				Namespace: obj.GetNamespace(),
-				Name:      obj.GetName(),
-				GroupKind: obj.GroupVersionKind().GroupKind(),
-			}) {
+			if obj.GroupVersionKind().Kind == ref.GroupKind.Kind &&
+				obj.GroupVersionKind().Group == ref.GroupKind.Group &&
+				obj.GetName() == ref.Name &&
+				// A cluster spaced input object might have a namespace set by the user,
+				// ignore the input object's namespace if the inventory ref has no namespace.
+				(obj.GetNamespace() == ref.Namespace || ref.Namespace == "") {
 				found = true
 
 				break

@@ -374,6 +374,100 @@ func TestCRDWithCustomResourceApply(t *testing.T) {
 			assert.Equal(t, ssa.UnchangedAction, r.Action, "expected unchanged for %s", r.Subject)
 		}
 	})
+
+	// A cluster-scoped resource (such as a CRD) might have a namespace set on it by the user.
+	// The API server ignores the namespace for cluster-scoped objects, so the server-side
+	// responses for diff and apply carry an empty namespace while the input object keeps the
+	// user-set one. Apply, diff and prune must all still work despite this mismatch.
+	t.Run("cluster-scoped resources a namespace set is handled correctly", func(t *testing.T) {
+		// crdWithNS re-reads the CRD manifest, sets a label and simulates the user mistakenly
+		// setting a namespace on the cluster-scoped resource.
+		crdWithNS := func(t *testing.T, label string) *unstructured.Unstructured {
+			t.Helper()
+
+			crd, err := utils.ReadObject(strings.NewReader(widgetCRDManifest))
+			require.NoError(t, err)
+
+			crd.SetNamespace("test-lab")
+			crd.SetLabels(map[string]string{"namespaced-cluster-scoped": label})
+
+			return crd
+		}
+
+		findByKind := func(t *testing.T, kind string, metas []object.ObjMetadata) int {
+			t.Helper()
+
+			idx, count := -1, 0
+
+			for i, m := range metas {
+				if m.GroupKind.Kind == kind {
+					idx, count = i, count+1
+				}
+			}
+
+			require.Equal(t, 1, count, "expected exactly one %s entry, got %d in %v", kind, count, metas)
+
+			return idx
+		}
+
+		widget2, err := utils.ReadObject(strings.NewReader(widgetManifest))
+		require.NoError(t, err)
+
+		// diff: the change on the namespaced cluster-scoped CRD must be detected
+		diffResults, err := manager.Diff(t.Context(), []*unstructured.Unstructured{ns, crdWithNS(t, "diff"), widget2}, ssa.DiffOptions{})
+		require.NoError(t, err)
+		require.Len(t, diffResults, 3)
+
+		crdDiff := diffResults[findByKind(t, "CustomResourceDefinition", xslices.Map(diffResults, func(r ssa.DiffResult) object.ObjMetadata { return r.ObjMetadata }))]
+		assert.Equal(t, ssa.DiffConfiguredAction, crdDiff.Action)
+		assert.Contains(t, crdDiff.Diff, "namespaced-cluster-scoped")
+
+		// apply: the diff must be correctly associated despite the namespace mismatch between the
+		// dry-run diff result (keyed with the user-set namespace) and the apply result (keyed with
+		// the server-normalized empty namespace), and the CRD must not be pruned.
+		results, err := manager.Apply(t.Context(), []*unstructured.Unstructured{ns, crdWithNS(t, "apply"), widget2}, ssa.ApplyOptions{})
+		require.NoError(t, err)
+		require.Len(t, results, 3)
+
+		crdChange := results[findByKind(t, "CustomResourceDefinition", xslices.Map(results, func(r ssa.Change) object.ObjMetadata { return r.ObjMetadata }))]
+		assert.Equal(t, ssa.ConfiguredAction, crdChange.Action)
+		assert.Contains(t, crdChange.Diff, "namespaced-cluster-scoped")
+
+		clusterCRD := assertResourceDeployed(t, dynamicClient, crd)
+		assert.Equal(t, "apply", clusterCRD.GetLabels()["namespaced-cluster-scoped"])
+
+		// the user removes the namespace from the cluster-scoped resource: matching against the
+		// inventory (keyed with an empty namespace) must still work, yielding a correct unchanged
+		// result with no spurious diff rather than a re-create or mismatch error.
+		crdNoNS := crdWithNS(t, "apply")
+		crdNoNS.SetNamespace("")
+
+		results, err = manager.Apply(t.Context(), []*unstructured.Unstructured{ns, crdNoNS, widget2}, ssa.ApplyOptions{})
+		require.NoError(t, err)
+		require.Len(t, results, 3)
+
+		crdChange = results[findByKind(t, "CustomResourceDefinition", xslices.Map(results, func(r ssa.Change) object.ObjMetadata { return r.ObjMetadata }))]
+		assert.Equal(t, ssa.UnchangedAction, crdChange.Action)
+		assert.Empty(t, crdChange.Diff)
+		assertResourceDeployed(t, dynamicClient, crd)
+
+		// prune: the cluster-scoped CRD applied with a namespace set must be pruned correctly once it
+		// is dropped from the desired set. Remove the widget first (the CR depending on the CRD), then
+		// drop the CRD itself and assert it is pruned despite its namespace differing from the empty
+		// namespace stored in the inventory.
+		_, err = manager.Apply(t.Context(), []*unstructured.Unstructured{ns, crdWithNS(t, "apply")}, ssa.ApplyOptions{})
+		require.NoError(t, err)
+		waitForResourceDeleted(t.Context(), t, dynamicClient, widget, mapper)
+
+		results, err = manager.Apply(t.Context(), []*unstructured.Unstructured{ns}, ssa.ApplyOptions{})
+		require.NoError(t, err)
+
+		crdChange = results[findByKind(t, "CustomResourceDefinition", xslices.Map(results, func(r ssa.Change) object.ObjMetadata { return r.ObjMetadata }))]
+		assert.Equal(t, ssa.DeletedAction, crdChange.Action)
+		assert.Contains(t, crdChange.Diff, "-kind: CustomResourceDefinition")
+
+		waitForResourceDeleted(t.Context(), t, dynamicClient, crd, mapper)
+	})
 }
 
 func assertResourceDeployed(t *testing.T, dynamicClient *dynamic.DynamicClient, obj *unstructured.Unstructured) *unstructured.Unstructured {

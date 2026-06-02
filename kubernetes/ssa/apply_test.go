@@ -593,6 +593,71 @@ func TestApplyUnexpectedEntry(t *testing.T) {
 	assert.Equal(t, "ConfigMap/default/ghost-cm", resultsByName["ghost-cm"].Subject)
 }
 
+// clusterScopedNamespaceStripper simulates the Kubernetes API server normalizing cluster-scoped
+// resources: server-side apply responses for such resources carry an empty namespace even when
+// the request object had one set. It strips the namespace from CustomResourceDefinition apply
+// entries, reproducing the mismatch between the dry-run diff (keyed with the user-set namespace)
+// and the apply result (keyed with the empty, server-normalized namespace).
+type clusterScopedNamespaceStripper struct {
+	resourcemanager.Mock
+}
+
+func (m *clusterScopedNamespaceStripper) ApplyAllStaged(ctx context.Context, objects []*unstructured.Unstructured, opts fluxssa.ApplyOptions) (*fluxssa.ChangeSet, error) {
+	cs, err := m.Mock.ApplyAllStaged(ctx, objects, opts)
+	if cs != nil {
+		for i := range cs.Entries {
+			if cs.Entries[i].ObjMetadata.GroupKind.Kind == "CustomResourceDefinition" {
+				cs.Entries[i].ObjMetadata.Namespace = ""
+			}
+		}
+	}
+
+	return cs, err
+}
+
+func TestApplyClusterScopedResourceWithNamespace(t *testing.T) {
+	// A cluster-scoped resource (a CRD here) may have a namespace set on it by the user. The API
+	// server ignores it, so the server-side apply response carries an empty namespace while the
+	// dry-run diff, built from the input object, keeps the user-set one. Apply must still associate
+	// the diff with the change and must not prune the resource over the namespace mismatch.
+	rm := &clusterScopedNamespaceStripper{Mock: *resourcemanager.NewMock()}
+	inv := memory.NewInventory("test-inventory")
+	manager := ssa.NewCustomManager(rm, testInventoryClosure(t.Context(), inv), nil, &mapperMock{})
+
+	crd := &unstructured.Unstructured{}
+	require.NoError(t, sigsyaml.Unmarshal(widgetCRDYAML, &crd.Object))
+	crd.SetNamespace("test-lab")
+
+	results, err := manager.Apply(t.Context(), []*unstructured.Unstructured{crd}, ssa.ApplyOptions{})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+
+	// The diff must be associated with the change despite the diff/apply namespace mismatch, and
+	// the change must be tracked under the server-normalized empty namespace.
+	assert.Equal(t, ssa.CreatedAction, results[0].Action)
+	assert.Contains(t, results[0].Diff, "+kind: CustomResourceDefinition")
+	assert.Empty(t, results[0].ObjMetadata.Namespace, "cluster-scoped resource should be tracked without a namespace")
+
+	invContents := inv.Get()
+	require.Len(t, invContents, 1)
+	assert.Empty(t, invContents[0].Namespace, "inventory should track the cluster-scoped resource without a namespace")
+
+	// Re-applying with the namespace still set must match the inventory entry (empty namespace) and
+	// must not prune the resource.
+	crd2 := &unstructured.Unstructured{}
+	require.NoError(t, sigsyaml.Unmarshal(widgetCRDYAML, &crd2.Object))
+	crd2.SetNamespace("test-lab")
+
+	results, err = manager.Apply(t.Context(), []*unstructured.Unstructured{crd2}, ssa.ApplyOptions{})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.NotEqual(t, ssa.DeletedAction, results[0].Action, "the cluster-scoped resource must not be pruned")
+
+	invContents = inv.Get()
+	require.Len(t, invContents, 1, "the cluster-scoped resource must remain tracked, not pruned")
+	assert.Empty(t, invContents[0].Namespace)
+}
+
 func getConfigmapManifest(name string) *unstructured.Unstructured {
 	obj := &unstructured.Unstructured{
 		Object: map[string]any{
