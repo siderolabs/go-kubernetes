@@ -67,6 +67,7 @@ type ResourceManager interface {
 		err error)
 	WaitForSetWithContext(ctx context.Context, set object.ObjMetadataSet, opts ssa.WaitOptions) error
 	Get(ctx context.Context, objMeta object.ObjMetadata) (*unstructured.Unstructured, error)
+	SetConcurrency(concurrency int)
 }
 
 // NewCustomManager creates a new manager with specified resource manager and inventory.
@@ -121,6 +122,11 @@ func NewManager(ctx context.Context, kubeconfig *rest.Config, fieldManagerName, 
 	}
 
 	return NewCustomManager(resourceManager, inventoryFactory, httpClient, mapper), nil
+}
+
+// SetConcurrency sets the concurrency level for apply operations in the resource manager.
+func (m *Manager) SetConcurrency(concurrency int) {
+	m.resourceManager.SetConcurrency(concurrency)
 }
 
 // Close performs any necessary cleanup, such as closing the HTTP connections.

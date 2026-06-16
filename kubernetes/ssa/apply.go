@@ -18,6 +18,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/siderolabs/go-kubernetes/kubernetes"
 	"github.com/siderolabs/go-kubernetes/kubernetes/ssa/object"
@@ -25,6 +26,9 @@ import (
 
 // ApplyOptions defines the options for the Apply method.
 type ApplyOptions struct {
+	// CustomStageKinds defines a set of Kubernetes resource types that should be applied
+	// in a separate stage after CRDs and before namespaced objects.
+	CustomStageKinds map[schema.GroupKind]struct{}
 	// InventoryPolicy defines if an inventory object can take over objects that belong to another inventory object or don't belong to any inventory object.
 	InventoryPolicy InventoryPolicy
 	// DeletePropagationPolicy configures the delete operation propagation policy.
@@ -86,11 +90,11 @@ type Change struct {
 func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructured, ops ApplyOptions) ([]Change, error) {
 	ctx = logr.NewContext(ctx, logr.FromContextOrDiscard(ctx))
 
-	// Use this map to track changes made. Return it only once the changes have been made.
+	// Use this list to track changes made. Return it only once the changes have been made.
 	// Keyed by ObjMetadata (group/kind/namespace/name) to avoid lookup mismatches when
 	// the API server's dry-run response carries a different apiVersion than the input
 	// object — e.g., for CRs whose CRD has multiple versions or a conversion webhook.
-	changeMap := make(map[object.ObjMetadata]*Change)
+	changes := make([]Change, 0, len(objects))
 
 	inv, err := m.inventory(ctx)
 	if err != nil {
@@ -126,9 +130,10 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 		var result *ssa.ChangeSet
 
 		result, err = m.resourceManager.ApplyAllStaged(ctx, objects, ssa.ApplyOptions{
-			Force:        ops.Force,
-			WaitInterval: ops.WaitInterval,
-			WaitTimeout:  ops.WaitTimeout,
+			Force:            ops.Force,
+			WaitInterval:     ops.WaitInterval,
+			WaitTimeout:      ops.WaitTimeout,
+			CustomStageKinds: ops.CustomStageKinds,
 		})
 
 		// only push new results to avoid "unchanged" results for objects that were already applied
@@ -167,10 +172,10 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 				invErr = errors.Join(invErr, fmt.Errorf("resourceManager returned %q for unexpected object %s", e.Action, e.Subject))
 			}
 
-			change := &Change{ChangeSetEntry: ChangeSetEntry(e)}
+			change := Change{ChangeSetEntry: ChangeSetEntry(e)}
 			change.Diff = diff
 			change.Action = e.Action
-			changeMap[e.ObjMetadata] = change
+			changes = append(changes, change)
 
 			if !inventoryObjRefs.Contains(e.ObjMetadata) {
 				inventoryObjRefs = append(inventoryObjRefs, e.ObjMetadata)
@@ -188,11 +193,11 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 	// return if there were inventory or apply errors and skip pruning
 	err = errors.Join(applyErr, invErr)
 	if err != nil {
-		return changesMapToArray(changeMap), err
+		return changes, err
 	}
 
 	if ops.NoPrune {
-		return changesMapToArray(changeMap), nil
+		return changes, nil
 	}
 
 	pruneObjRefs := calculatePruneObjects(inventoryObjRefs, objects)
@@ -233,14 +238,13 @@ func (m *Manager) Apply(ctx context.Context, objects []*unstructured.Unstructure
 			pruneErr = errors.Join(pruneErr, err)
 		}
 
-		change := changeFromObject(obj, diff, ssa.DeletedAction)
-		changeMap[change.ObjMetadata] = &change
+		changes = append(changes, changeFromObject(obj, diff, ssa.DeletedAction))
 	}
 
 	inv.Update(inventoryObjRefs)
 	invErr = inv.Write(ctx)
 
-	return changesMapToArray(changeMap), errors.Join(pruneErr, invErr)
+	return changes, errors.Join(pruneErr, invErr)
 }
 
 func invPolicyFailureErr(obj *unstructured.Unstructured, err error) error {
@@ -328,22 +332,6 @@ func changeFromObject(obj *unstructured.Unstructured, diff string, action Action
 		},
 		Diff: diff,
 	}
-}
-
-func changesMapToArray(changeMap map[object.ObjMetadata]*Change) []Change {
-	changes := []Change{}
-
-	for _, c := range changeMap {
-		// skip unknown actions as this state was used as a placeholder for actions not taken
-		// most likely these remain if an error was encountered half way through
-		if c.Action == ssa.UnknownAction {
-			continue
-		}
-
-		changes = append(changes, *c)
-	}
-
-	return changes
 }
 
 func containsCRDs(objects []*unstructured.Unstructured) bool {

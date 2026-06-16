@@ -129,6 +129,8 @@ func (m *Mock) registerCRD(obj *unstructured.Unstructured) {
 	}
 }
 
+func (m *Mock) SetConcurrency(int) {}
+
 func (m *Mock) Get(ctx context.Context, meta object.ObjMetadata) (*unstructured.Unstructured, error) {
 	obj := m.objects[objKey{Group: meta.GroupKind.Group, Kind: meta.GroupKind.Kind, Namespace: meta.Namespace, Name: meta.Name}]
 	if obj == nil {

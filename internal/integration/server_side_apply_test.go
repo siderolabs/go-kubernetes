@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
@@ -124,14 +125,16 @@ func TestServerSideApply(t *testing.T) {
 		}
 
 		resultSubjects := xslices.Map(results, func(r ssa.Change) string { return r.Subject })
-		require.Contains(t, resultSubjects, "Namespace/test-lab")
-		require.Contains(t, resultSubjects, "ConfigMap/test-lab/app-config")
+		assert.Equal(t, []string{"Namespace/test-lab", "ConfigMap/test-lab/app-config"}, resultSubjects)
 	})
 
 	t.Run("deploy Namespace and ConfigMap a second time, expect no changes", func(t *testing.T) {
 		results, err := manager.Apply(t.Context(), []*unstructured.Unstructured{ns, cm}, ssa.ApplyOptions{})
 		require.NoError(t, err)
 		require.Len(t, results, 2)
+
+		resultSubjects := xslices.Map(results, func(r ssa.Change) string { return r.Subject })
+		assert.Equal(t, []string{"Namespace/test-lab", "ConfigMap/test-lab/app-config"}, resultSubjects)
 
 		for _, r := range results {
 			assert.Equal(t, ssa.UnchangedAction, r.Action)
@@ -140,12 +143,19 @@ func TestServerSideApply(t *testing.T) {
 	})
 
 	t.Run("add a Secret to the existing set", func(t *testing.T) {
-		results, err := manager.Apply(t.Context(), []*unstructured.Unstructured{ns, cm, secret}, ssa.ApplyOptions{})
+		results, err := manager.Apply(
+			t.Context(), []*unstructured.Unstructured{ns, cm, secret},
+			ssa.ApplyOptions{
+				CustomStageKinds: map[schema.GroupKind]struct{}{
+					// push secret to the custom stage, so it comes before the configmap
+					schema.ParseGroupKind("Secret"): {},
+				},
+			})
 		require.NoError(t, err)
 		require.Len(t, results, 3)
 
 		resultSubjects := xslices.Map(results, func(r ssa.Change) string { return r.Subject })
-		require.Contains(t, resultSubjects, "Secret/test-lab/app-secret")
+		assert.Equal(t, []string{"Namespace/test-lab", "Secret/test-lab/app-secret", "ConfigMap/test-lab/app-config"}, resultSubjects)
 
 		for _, r := range results {
 			if r.Subject == "Secret/test-lab/app-secret" {
@@ -197,6 +207,9 @@ func TestServerSideApply(t *testing.T) {
 		results, err := manager.Apply(t.Context(), []*unstructured.Unstructured{ns, cmModified, secretModified}, ssa.ApplyOptions{})
 		require.NoError(t, err)
 		require.Len(t, results, 3)
+
+		subjects := xslices.Map(results, func(r ssa.Change) string { return r.Subject })
+		assert.Equal(t, []string{"Namespace/test-lab", "ConfigMap/test-lab/app-config", "Secret/test-lab/app-secret"}, subjects)
 
 		for _, r := range results {
 			if r.Subject == "ConfigMap/test-lab/app-config" {
