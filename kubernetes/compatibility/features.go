@@ -72,6 +72,12 @@ func (v Version) FeatureFlagStructuredAuthorizationConfigurationEnabledByDefault
 
 // KubeAPIServerAuthorizationConfigAPIVersion returns the API version of the kube-apiserver authorization config.
 func (v Version) KubeAPIServerAuthorizationConfigAPIVersion() string {
+	// v1.32 and above supports v1
+	// https://kubernetes.io/docs/reference/access-authn-authz/authorization/#using-configuration-file-for-authorization
+	if semver.Version(v).GTE(semver.Version{Major: 1, Minor: 32}) {
+		return "apiserver.config.k8s.io/v1"
+	}
+
 	// https://v1-30.docs.kubernetes.io/docs/reference/access-authn-authz/authorization/#using-configuration-file-for-authorization
 	// v1.30 and above supports v1beta1
 	if semver.Version(v).GTE(semver.Version{Major: 1, Minor: 30}) {

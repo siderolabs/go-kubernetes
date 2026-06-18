@@ -126,7 +126,7 @@ func TestFeatures(t *testing.T) {
 			expectedKubeSchedulerLivenessEndpoint:                                   "/livez",
 			expectedKubeSchedulerReadinessEndpoint:                                  "/readyz",
 			expectedKubeSchedulerStartupEndpoint:                                    "/livez",
-			expectedKubeAPIServerAuthorizationConfigAPIVersion:                      "apiserver.config.k8s.io/v1beta1",
+			expectedKubeAPIServerAuthorizationConfigAPIVersion:                      "apiserver.config.k8s.io/v1",
 		},
 	} {
 		for _, version := range test.versions {
