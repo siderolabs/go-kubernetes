@@ -20,6 +20,10 @@ type Client struct {
 
 // NewForConfig initializes and returns a client using the provided config.
 func NewForConfig(config *rest.Config) (*Client, error) {
+	if config.UserAgent == "" {
+		config.UserAgent = rest.DefaultKubernetesUserAgent()
+	}
+
 	// rest.HTTPClientFor builds the *http.Client with TLS + auth configured,
 	// going through the transport cache normally (stable cache key).
 	httpClient, err := rest.HTTPClientFor(config)
