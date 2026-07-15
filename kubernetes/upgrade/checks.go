@@ -334,6 +334,47 @@ func newChecks(path *Path, k8sConfig *rest.Config, controlPlaneNodes, workerNode
 					"WatchFromStorageWithoutResourceVersion", // https://github.com/kubernetes/kubernetes/pull/136066
 				},
 			},
+			// https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/CHANGELOG-1.37.md
+			"1.36->1.37": {
+				// TODO: update this with the final list of removed items once the 1.37 release notes are published
+				removedFeatureGates: []string{
+					"AnyVolumeDataSource",           // https://github.com/kubernetes/kubernetes/pull/135336
+					"DeclarativeValidationTakeover", // https://github.com/kubernetes/kubernetes/pull/139212
+					"GangScheduling",                // https://github.com/kubernetes/kubernetes/pull/139520
+					"PreventStaticPodAPIReferences", // https://github.com/kubernetes/kubernetes/pull/140226
+					"WorkloadAwarePreemption",       // https://github.com/kubernetes/kubernetes/pull/139520
+				},
+				kubeAPIServerChecks: apiServerCheck{
+					removedAPIResources: []string{
+						"workloads.v1alpha2.scheduling.k8s.io", // https://github.com/kubernetes/kubernetes/pull/138572
+						"podgroups.v1alpha2.scheduling.k8s.io", // https://github.com/kubernetes/kubernetes/pull/138572
+					},
+				},
+				kubeletChecks: componentCheck{
+					removedFlags: []string{
+						// deprecated cAdvisor flags removed; kubelet fails to start if any are set
+						// https://github.com/kubernetes/kubernetes/pull/139870
+						"application-metrics-count-limit",
+						"boot-id-file",
+						"container-hints",
+						"containerd",
+						"containerd-namespace",
+						"enable-load-reader",
+						"event-storage-age-limit",
+						"event-storage-event-limit",
+						"global-housekeeping-interval",
+						"log-cadvisor-usage",
+						"machine-id-file",
+						"storage-driver-user",
+						"storage-driver-password",
+						"storage-driver-host",
+						"storage-driver-db",
+						"storage-driver-table",
+						"storage-driver-secure",
+						"storage-driver-buffer-duration",
+					},
+				},
+			},
 		},
 	}
 }

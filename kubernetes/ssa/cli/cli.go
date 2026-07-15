@@ -41,7 +41,8 @@ func Wait(ctx context.Context, changes []ssa.Change, logFunc func(line string, a
 
 	logFunc("waiting for kubernetes objects to be fully reconciled")
 
-	err := manager.Wait(ctx,
+	err := manager.Wait(
+		ctx,
 		object.ObjMetadataSetFromMap(waitObjects),
 		waitOps,
 	)

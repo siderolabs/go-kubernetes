@@ -150,7 +150,8 @@ func TestServerSideApply(t *testing.T) {
 					// push secret to the custom stage, so it comes before the configmap
 					schema.ParseGroupKind("Secret"): {},
 				},
-			})
+			},
+		)
 		require.NoError(t, err)
 		require.Len(t, results, 3)
 
