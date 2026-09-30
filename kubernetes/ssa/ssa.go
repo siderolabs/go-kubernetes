@@ -13,6 +13,7 @@ import (
 	"github.com/fluxcd/cli-utils/pkg/kstatus/polling"
 	"github.com/fluxcd/cli-utils/pkg/object"
 	"github.com/fluxcd/pkg/ssa"
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/discovery"
@@ -21,6 +22,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type InventoryBackedManager interface {
@@ -97,6 +99,8 @@ func NewManager(ctx context.Context, kubeconfig *rest.Config, fieldManagerName, 
 	kubeClient, err := client.New(kubeconfig, client.Options{
 		HTTPClient: httpClient,
 		Mapper:     mapper,
+		// a zero logger (including logr.Discard()) makes controller-runtime fall back to its global logger, which warns if unset
+		Log: logr.New(ctrllog.NullLogSink{}),
 	})
 	if err != nil {
 		return nil, err
