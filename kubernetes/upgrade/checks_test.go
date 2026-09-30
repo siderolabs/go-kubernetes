@@ -262,6 +262,26 @@ func TestK8sComponentRemovedItemsWithKubeletError(t *testing.T) {
 				Component: "kube-scheduler",
 				Value:     "StatefulSetMinReadySeconds",
 			},
+			{
+				Node:      "10.5.0.2",
+				Component: "kubelet",
+				Value:     "ExpandCSIVolumes",
+			},
+			{
+				Node:      "10.5.0.2",
+				Component: "kubelet",
+				Value:     "StatefulSetMinReadySeconds",
+			},
+			{
+				Node:      "10.5.0.3",
+				Component: "kubelet",
+				Value:     "ExpandCSIVolumes",
+			},
+			{
+				Node:      "10.5.0.3",
+				Component: "kubelet",
+				Value:     "StatefulSetMinReadySeconds",
+			},
 		},
 	}
 
@@ -288,6 +308,13 @@ func TestK8sComponentRemovedItemsWithKubeletError(t *testing.T) {
 		"--kubeconfig=/etc/kubernetes/kubeconfig-kubelet",
 		"--master-service-namespace=default",
 		"--node-ip=10.5.0.3",
+		"--feature-gates=ExpandCSIVolumes=true",
+	}
+	cfg.TypedSpec().Config = map[string]any{
+		"featureGates": map[string]any{
+			"ExpandCSIVolumes":           true,
+			"StatefulSetMinReadySeconds": true,
+		},
 	}
 
 	require.NoError(t, resourceState.Create(ctx, cfg))

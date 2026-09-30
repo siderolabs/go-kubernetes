@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -61,7 +62,7 @@ type ComponentItem struct {
 }
 
 type componentChecks struct {
-	// feature gates are common to kube-apiserver, kube-controller-manager and kube-scheduler
+	// feature gates are common to kube-apiserver, kube-controller-manager, kube-scheduler and kubelet
 	removedFeatureGates []string
 	// checks specific to kube-apiserver
 	kubeAPIServerChecks apiServerCheck
@@ -326,7 +327,6 @@ func newChecks(path *Path, k8sConfig *rest.Config, controlPlaneNodes, workerNode
 			},
 			// https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/CHANGELOG-1.36.md
 			"1.35->1.36": {
-				// TODO: update this with the final list of removed items once the 1.36 release notes are published
 				removedFeatureGates: []string{
 					"CSIMigrationPortworx",                   // https://github.com/kubernetes/kubernetes/pull/135322
 					"HonorPVReclaimPolicy",                   // https://github.com/kubernetes/kubernetes/pull/135335
@@ -373,6 +373,21 @@ func newChecks(path *Path, k8sConfig *rest.Config, controlPlaneNodes, workerNode
 						"storage-driver-secure",
 						"storage-driver-buffer-duration",
 					},
+				},
+			},
+			// https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/CHANGELOG-1.38.md
+			"1.37->1.38": {
+				// TODO: update this with the final list of removed items once the 1.38 release notes are published
+				removedFeatureGates: []string{
+					"AggregatedDiscoveryRemoveBetaType", // https://github.com/kubernetes/kubernetes/pull/141208
+					"CRDValidationRatcheting",           // https://github.com/kubernetes/kubernetes/pull/141207
+					"CustomResourceFieldSelectors",      // https://github.com/kubernetes/kubernetes/pull/141207
+					"DynamicResourceAllocation",         // https://github.com/kubernetes/kubernetes/pull/141946
+					"KubeletTracing",                    // https://github.com/kubernetes/kubernetes/pull/141714
+					"PodSchedulingReadiness",            // https://github.com/kubernetes/kubernetes/pull/141741
+					"SeparateTaintEvictionController",   // https://github.com/kubernetes/kubernetes/pull/141789
+					"ServiceAccountTokenPodNodeInfo",    // https://github.com/kubernetes/kubernetes/pull/135338
+					"WindowsHostNetwork",                // https://github.com/kubernetes/kubernetes/pull/142018
 				},
 			},
 		},
@@ -452,6 +467,8 @@ func (checks *Checks) Run(ctx context.Context) error {
 			}
 
 			k8sComponentCheck.PopulateRemovedCLIFlags(node, k8s.KubeletID, kubeletSpec.TypedSpec().Args, k8sComponentChecks.kubeletChecks.removedFlags)
+			k8sComponentCheck.PopulateRemovedFeatureGates(node, k8s.KubeletID, kubeletSpec.TypedSpec().Args, k8sComponentChecks.removedFeatureGates)
+			k8sComponentCheck.PopulateRemovedKubeletConfigFeatureGates(node, kubeletSpec.TypedSpec().Config, k8sComponentChecks.removedFeatureGates)
 		}
 
 		checks.log("checking for removed Kubernetes API resource versions")
@@ -500,6 +517,34 @@ func (e *ComponentRemovedItemsError) PopulateRemovedFeatureGates(node, component
 					Value:     removedFeatureGate,
 				})
 			}
+		}
+	}
+}
+
+// PopulateRemovedKubeletConfigFeatureGates populates the removed feature gates set in the kubelet configuration.
+//
+// Feature gates already reported for the node (e.g. via the kubelet --feature-gates flag) are not reported again.
+func (e *ComponentRemovedItemsError) PopulateRemovedKubeletConfigFeatureGates(node string, kubeletConfig map[string]any, removedFeatureGates []string) {
+	var featureGates []string
+
+	switch gates := kubeletConfig["featureGates"].(type) {
+	case map[string]any:
+		featureGates = slices.Collect(maps.Keys(gates))
+	case map[string]bool:
+		featureGates = slices.Collect(maps.Keys(gates))
+	default:
+		return
+	}
+
+	for _, removedFeatureGate := range removedFeatureGates {
+		item := ComponentItem{
+			Node:      node,
+			Component: k8s.KubeletID,
+			Value:     removedFeatureGate,
+		}
+
+		if slices.Contains(featureGates, removedFeatureGate) && !slices.Contains(e.FeatureGates, item) {
+			e.FeatureGates = append(e.FeatureGates, item)
 		}
 	}
 }
