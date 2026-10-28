@@ -6,6 +6,7 @@ package nodedrain_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"sync"
@@ -24,7 +25,10 @@ import (
 	"github.com/siderolabs/go-kubernetes/kubernetes/nodedrain"
 )
 
-const testNode = "worker-1"
+const (
+	testNode          = "worker-1"
+	testAnnotationKey = "example.com/cordoned"
+)
 
 func node(unschedulable bool) *corev1.Node {
 	return &corev1.Node{
@@ -33,41 +37,277 @@ func node(unschedulable bool) *corev1.Node {
 	}
 }
 
+func getNode(t *testing.T, clientset *fake.Clientset) *corev1.Node {
+	t.Helper()
+
+	got, err := clientset.CoreV1().Nodes().Get(t.Context(), testNode, metav1.GetOptions{})
+	require.NoError(t, err)
+
+	return got
+}
+
+// recordPatchedResourceVersion records the resourceVersion carried by each node patch and lets the patch through.
+func recordPatchedResourceVersion(clientset *fake.Clientset) *[]string {
+	var versions []string
+
+	clientset.PrependReactor("patch", "nodes", func(action ktesting.Action) (bool, runtime.Object, error) {
+		patchAction, ok := action.(ktesting.PatchAction)
+		if !ok {
+			return true, nil, errors.New("unexpected action type")
+		}
+
+		var patched corev1.Node
+
+		if err := json.Unmarshal(patchAction.GetPatch(), &patched); err != nil {
+			return true, nil, err
+		}
+
+		versions = append(versions, patched.ResourceVersion)
+
+		return false, nil, nil
+	})
+
+	return &versions
+}
+
 func TestCordon(t *testing.T) {
 	t.Parallel()
 
-	ctx := t.Context()
-	clientset := fake.NewSimpleClientset(node(false))
+	t.Run("cordons and annotates a schedulable node", func(t *testing.T) {
+		t.Parallel()
 
-	require.NoError(t, nodedrain.Cordon(ctx, clientset, testNode))
+		ctx := t.Context()
+		clientset := fake.NewSimpleClientset(node(false))
 
-	got, err := clientset.CoreV1().Nodes().Get(ctx, testNode, metav1.GetOptions{})
-	require.NoError(t, err)
+		require.NoError(t, nodedrain.Cordon(ctx, clientset, testNode, testAnnotationKey))
 
-	assert.True(t, got.Spec.Unschedulable)
-}
+		got := getNode(t, clientset)
+		assert.True(t, got.Spec.Unschedulable)
+		assert.Contains(t, got.Annotations, testAnnotationKey)
+	})
 
-func TestUncordon(t *testing.T) {
-	t.Parallel()
-
-	t.Run("clears the unschedulable flag", func(t *testing.T) {
+	t.Run("leaves an already cordoned node as is", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := t.Context()
 		clientset := fake.NewSimpleClientset(node(true))
 
-		require.NoError(t, nodedrain.Uncordon(ctx, clientset, testNode))
+		require.NoError(t, nodedrain.Cordon(ctx, clientset, testNode, testAnnotationKey))
 
-		got, err := clientset.CoreV1().Nodes().Get(ctx, testNode, metav1.GetOptions{})
-		require.NoError(t, err)
+		got := getNode(t, clientset)
+		assert.True(t, got.Spec.Unschedulable)
+		assert.NotContains(t, got.Annotations, testAnnotationKey, "a cordon set by someone else must not be claimed")
+	})
 
+	t.Run("patches with the resourceVersion of the node it read", func(t *testing.T) {
+		t.Parallel()
+
+		n := node(false)
+		n.ResourceVersion = "42"
+
+		clientset := fake.NewSimpleClientset(n)
+		versions := recordPatchedResourceVersion(clientset)
+
+		require.NoError(t, nodedrain.Cordon(t.Context(), clientset, testNode, testAnnotationKey))
+
+		assert.Equal(t, []string{"42"}, *versions)
+	})
+
+	t.Run("does not patch again when retried", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		clientset := fake.NewSimpleClientset(node(false))
+		versions := recordPatchedResourceVersion(clientset)
+
+		require.NoError(t, nodedrain.Cordon(ctx, clientset, testNode, testAnnotationKey))
+		require.NoError(t, nodedrain.Cordon(ctx, clientset, testNode, testAnnotationKey))
+
+		assert.Len(t, *versions, 1)
+
+		got := getNode(t, clientset)
+		assert.True(t, got.Spec.Unschedulable)
+		assert.Contains(t, got.Annotations, testAnnotationKey)
+	})
+
+	t.Run("does not claim a cordon set by someone else after a conflict", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		clientset := fake.NewSimpleClientset(node(false))
+
+		var conflicted bool
+
+		clientset.PrependReactor("patch", "nodes", func(ktesting.Action) (bool, runtime.Object, error) {
+			if conflicted {
+				return false, nil, nil
+			}
+
+			conflicted = true
+
+			if err := clientset.Tracker().Update(corev1.SchemeGroupVersion.WithResource("nodes"), node(true), ""); err != nil {
+				return true, nil, err
+			}
+
+			return true, nil, apierrors.NewConflict(corev1.Resource("nodes"), testNode, errors.New("node was modified"))
+		})
+
+		require.NoError(t, nodedrain.Cordon(ctx, clientset, testNode, testAnnotationKey))
+
+		got := getNode(t, clientset)
+		assert.True(t, got.Spec.Unschedulable)
+		assert.NotContains(t, got.Annotations, testAnnotationKey, "a cordon set by someone else must not be claimed")
+	})
+}
+
+func TestUncordon(t *testing.T) {
+	t.Parallel()
+
+	t.Run("uncordons a node cordoned by Cordon", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		clientset := fake.NewSimpleClientset(node(false))
+
+		require.NoError(t, nodedrain.Cordon(ctx, clientset, testNode, testAnnotationKey))
+		require.NoError(t, nodedrain.Uncordon(ctx, clientset, testNode, testAnnotationKey))
+
+		got := getNode(t, clientset)
 		assert.False(t, got.Spec.Unschedulable)
+		assert.NotContains(t, got.Annotations, testAnnotationKey)
+	})
+
+	t.Run("keeps a cordon set by someone else after Cordon", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		clientset := fake.NewSimpleClientset(node(true))
+
+		require.NoError(t, nodedrain.Cordon(ctx, clientset, testNode, testAnnotationKey))
+		require.NoError(t, nodedrain.Uncordon(ctx, clientset, testNode, testAnnotationKey))
+
+		assert.True(t, getNode(t, clientset).Spec.Unschedulable)
+	})
+
+	t.Run("keeps a cordon set by someone else", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		clientset := fake.NewSimpleClientset(node(true))
+
+		require.NoError(t, nodedrain.Uncordon(ctx, clientset, testNode, testAnnotationKey))
+
+		assert.True(t, getNode(t, clientset).Spec.Unschedulable)
+	})
+
+	t.Run("patches with the resourceVersion of the node it read", func(t *testing.T) {
+		t.Parallel()
+
+		n := node(true)
+		n.ResourceVersion = "42"
+		n.Annotations = map[string]string{testAnnotationKey: "true"}
+
+		clientset := fake.NewSimpleClientset(n)
+		versions := recordPatchedResourceVersion(clientset)
+
+		require.NoError(t, nodedrain.Uncordon(t.Context(), clientset, testNode, testAnnotationKey))
+
+		assert.Equal(t, []string{"42"}, *versions)
+	})
+
+	t.Run("is a no-op when retried", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		clientset := fake.NewSimpleClientset(node(false))
+
+		require.NoError(t, nodedrain.Cordon(ctx, clientset, testNode, testAnnotationKey))
+		require.NoError(t, nodedrain.Uncordon(ctx, clientset, testNode, testAnnotationKey))
+		require.NoError(t, nodedrain.Uncordon(ctx, clientset, testNode, testAnnotationKey))
+
+		got := getNode(t, clientset)
+		assert.False(t, got.Spec.Unschedulable)
+		assert.NotContains(t, got.Annotations, testAnnotationKey)
+	})
+
+	t.Run("removes a stale annotation from a schedulable node", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+
+		stale := node(false)
+		stale.Annotations = map[string]string{testAnnotationKey: "true"}
+
+		clientset := fake.NewSimpleClientset(stale)
+
+		require.NoError(t, nodedrain.Uncordon(ctx, clientset, testNode, testAnnotationKey))
+
+		got := getNode(t, clientset)
+		assert.False(t, got.Spec.Unschedulable)
+		assert.NotContains(t, got.Annotations, testAnnotationKey)
+	})
+
+	t.Run("retries on a conflict", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		clientset := fake.NewSimpleClientset(node(false))
+
+		require.NoError(t, nodedrain.Cordon(ctx, clientset, testNode, testAnnotationKey))
+
+		var conflicted bool
+
+		clientset.PrependReactor("patch", "nodes", func(ktesting.Action) (bool, runtime.Object, error) {
+			if conflicted {
+				return false, nil, nil
+			}
+
+			conflicted = true
+
+			return true, nil, apierrors.NewConflict(corev1.Resource("nodes"), testNode, errors.New("node was modified"))
+		})
+
+		require.NoError(t, nodedrain.Uncordon(ctx, clientset, testNode, testAnnotationKey))
+
+		got := getNode(t, clientset)
+		assert.True(t, conflicted)
+		assert.False(t, got.Spec.Unschedulable)
+		assert.NotContains(t, got.Annotations, testAnnotationKey)
+	})
+
+	t.Run("does not undo a cordon taken over by someone else after a conflict", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+		clientset := fake.NewSimpleClientset(node(false))
+
+		require.NoError(t, nodedrain.Cordon(ctx, clientset, testNode, testAnnotationKey))
+
+		var conflicted bool
+
+		clientset.PrependReactor("patch", "nodes", func(ktesting.Action) (bool, runtime.Object, error) {
+			if conflicted {
+				return false, nil, nil
+			}
+
+			conflicted = true
+
+			if err := clientset.Tracker().Update(corev1.SchemeGroupVersion.WithResource("nodes"), node(true), ""); err != nil {
+				return true, nil, err
+			}
+
+			return true, nil, apierrors.NewConflict(corev1.Resource("nodes"), testNode, errors.New("node was modified"))
+		})
+
+		require.NoError(t, nodedrain.Uncordon(ctx, clientset, testNode, testAnnotationKey))
+
+		assert.True(t, getNode(t, clientset).Spec.Unschedulable, "a cordon set by someone else must not be undone")
 	})
 
 	t.Run("missing node is a no-op", func(t *testing.T) {
 		t.Parallel()
 
-		require.NoError(t, nodedrain.Uncordon(t.Context(), fake.NewSimpleClientset(), "ghost"))
+		require.NoError(t, nodedrain.Uncordon(t.Context(), fake.NewSimpleClientset(), "ghost", testAnnotationKey))
 	})
 }
 

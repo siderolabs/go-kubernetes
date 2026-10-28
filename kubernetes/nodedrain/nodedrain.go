@@ -8,6 +8,7 @@ package nodedrain
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"time"
@@ -15,8 +16,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/kubectl/pkg/drain"
 
 	gokubernetes "github.com/siderolabs/go-kubernetes/kubernetes"
@@ -42,18 +45,25 @@ type DrainOptions struct {
 	GracePeriodSeconds int
 }
 
-// Cordon marks the node unschedulable. Idempotent: a no-op if the node is already cordoned.
-func Cordon(ctx context.Context, clientset kubernetes.Interface, nodeName string) error {
-	node, err := clientset.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to get node %q: %w", nodeName, err)
-	}
+// Cordon marks the node unschedulable and sets annotationKey on it, so that Uncordon with the same key leaves a cordon
+// set by someone else alone. An already cordoned node is left as is.
+func Cordon(ctx context.Context, clientset kubernetes.Interface, nodeName, annotationKey string) error {
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		node, err := clientset.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to get node %q: %w", nodeName, err)
+		}
 
-	if err = drain.RunCordonOrUncordon(&drain.Helper{Ctx: ctx, Client: clientset}, node, true); err != nil {
-		return fmt.Errorf("failed to cordon node %q: %w", nodeName, err)
-	}
+		if node.Spec.Unschedulable {
+			return nil
+		}
 
-	return nil
+		if err = patchCordon(ctx, clientset, node, annotationKey, true); err != nil {
+			return fmt.Errorf("failed to cordon node %q: %w", nodeName, err)
+		}
+
+		return nil
+	})
 }
 
 // Drain evicts the node's pods with the kubectl drain library: it honors each pod's grace period and
@@ -127,23 +137,56 @@ func Drain(ctx context.Context, clientset kubernetes.Interface, nodeName string,
 	return nil
 }
 
-// Uncordon marks the node schedulable. A missing node is a no-op, so the call is safe to retry after a
-// node has been removed.
-func Uncordon(ctx context.Context, clientset kubernetes.Interface, nodeName string) error {
-	node, err := clientset.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
-	if err != nil {
-		if apierrors.IsNotFound(err) {
+// Uncordon marks the node schedulable if it was cordoned by Cordon with the same annotationKey. A missing node is a no-op,
+// so the call is safe to retry after a node has been removed.
+func Uncordon(ctx context.Context, clientset kubernetes.Interface, nodeName, annotationKey string) error {
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		node, err := clientset.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil
+			}
+
+			return fmt.Errorf("failed to get node %q: %w", nodeName, err)
+		}
+
+		if _, ok := node.Annotations[annotationKey]; !ok {
 			return nil
 		}
 
-		return fmt.Errorf("failed to get node %q: %w", nodeName, err)
+		if err = patchCordon(ctx, clientset, node, annotationKey, false); err != nil {
+			return fmt.Errorf("failed to uncordon node %q: %w", nodeName, err)
+		}
+
+		return nil
+	})
+}
+
+// patchCordon sets the unschedulable flag and annotationKey in a single patch, so that they never get out of sync.
+// Carrying the node's resourceVersion makes the patch fail with a conflict if the node changed after it was read.
+func patchCordon(ctx context.Context, clientset kubernetes.Interface, node *corev1.Node, annotationKey string, cordon bool) error {
+	var annotation any // nil removes the annotation
+
+	if cordon {
+		annotation = "true"
 	}
 
-	if err = drain.RunCordonOrUncordon(&drain.Helper{Ctx: ctx, Client: clientset}, node, false); err != nil {
-		return fmt.Errorf("failed to uncordon node %q: %w", nodeName, err)
+	patch, err := json.Marshal(map[string]any{
+		"metadata": map[string]any{
+			"resourceVersion": node.ResourceVersion,
+			"annotations":     map[string]any{annotationKey: annotation},
+		},
+		"spec": map[string]any{
+			"unschedulable": cordon,
+		},
+	})
+	if err != nil {
+		return err
 	}
 
-	return nil
+	_, err = clientset.CoreV1().Nodes().Patch(ctx, node.Name, types.MergePatchType, patch, metav1.PatchOptions{})
+
+	return err
 }
 
 // WaitForNodeReady polls until the node reports Ready=True or the timeout elapses. Retryable failures
