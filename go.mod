@@ -1,12 +1,12 @@
 module github.com/siderolabs/go-kubernetes
 
-go 1.26.5
+go 1.27.0
 
 require (
 	github.com/blang/semver/v4 v4.0.0
 	github.com/cosi-project/runtime v1.16.4
-	github.com/fluxcd/cli-utils v1.3.0
-	github.com/fluxcd/pkg/ssa v0.78.0
+	github.com/fluxcd/cli-utils v1.4.0
+	github.com/fluxcd/pkg/ssa v0.83.0
 	github.com/go-logr/logr v1.4.4
 	github.com/google/go-containerregistry v0.22.1
 	github.com/siderolabs/gen v0.8.8
@@ -14,9 +14,9 @@ require (
 	github.com/siderolabs/talos/pkg/machinery v1.14.5
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/sys v0.49.0
-	k8s.io/api v0.37.1
-	k8s.io/apimachinery v0.37.1
-	k8s.io/client-go v0.37.1
+	k8s.io/api v0.37.2
+	k8s.io/apimachinery v0.37.2
+	k8s.io/client-go v0.37.2
 	k8s.io/kubectl v0.37.1
 	sigs.k8s.io/controller-runtime v0.25.2
 	sigs.k8s.io/yaml v1.6.0
