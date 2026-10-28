@@ -22,6 +22,8 @@ func LogApplyResults(ctx context.Context, changes []ssa.Change, manager *ssa.Man
 			logFunc("%s", change.Diff)
 		case ssa.SkippedAction, ssa.UnchangedAction:
 			logFunc(" > skipped %s: no changes", change.Subject)
+		case ssa.UnknownAction:
+			fallthrough
 		default:
 			logFunc(" > processing manifest %s: unknown action %q", change.Subject, change.Action)
 		}
@@ -36,6 +38,7 @@ func Wait(ctx context.Context, changes []ssa.Change, logFunc func(line string, a
 		switch change.Action {
 		case ssa.CreatedAction, ssa.ConfiguredAction:
 			waitObjects[change.ObjMetadata] = struct{}{}
+		case ssa.UnchangedAction, ssa.DeletedAction, ssa.SkippedAction, ssa.UnknownAction:
 		}
 	}
 
