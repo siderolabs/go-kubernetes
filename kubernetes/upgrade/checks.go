@@ -378,16 +378,27 @@ func newChecks(path *Path, k8sConfig *rest.Config, controlPlaneNodes, workerNode
 			// https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG/CHANGELOG-1.38.md
 			"1.37->1.38": {
 				// TODO: update this with the final list of removed items once the 1.38 release notes are published
+				// (current list is based on the v1.38.0-beta.0 release notes)
 				removedFeatureGates: []string{
-					"AggregatedDiscoveryRemoveBetaType", // https://github.com/kubernetes/kubernetes/pull/141208
-					"CRDValidationRatcheting",           // https://github.com/kubernetes/kubernetes/pull/141207
-					"CustomResourceFieldSelectors",      // https://github.com/kubernetes/kubernetes/pull/141207
-					"DynamicResourceAllocation",         // https://github.com/kubernetes/kubernetes/pull/141946
-					"KubeletTracing",                    // https://github.com/kubernetes/kubernetes/pull/141714
-					"PodSchedulingReadiness",            // https://github.com/kubernetes/kubernetes/pull/141741
-					"SeparateTaintEvictionController",   // https://github.com/kubernetes/kubernetes/pull/141789
-					"ServiceAccountTokenPodNodeInfo",    // https://github.com/kubernetes/kubernetes/pull/135338
-					"WindowsHostNetwork",                // https://github.com/kubernetes/kubernetes/pull/142018
+					"AggregatedDiscoveryRemoveBetaType",           // https://github.com/kubernetes/kubernetes/pull/141208
+					"AllowOverwriteTerminationGracePeriodSeconds", // https://github.com/kubernetes/kubernetes/pull/143336
+					"CRDValidationRatcheting",                     // https://github.com/kubernetes/kubernetes/pull/141207
+					"CustomResourceFieldSelectors",                // https://github.com/kubernetes/kubernetes/pull/141207
+					"DynamicResourceAllocation",                   // https://github.com/kubernetes/kubernetes/pull/141946
+					"ExecProbeTimeout",                            // https://github.com/kubernetes/kubernetes/pull/143335
+					"KubeletTracing",                              // https://github.com/kubernetes/kubernetes/pull/141714
+					"MatchLabelKeysInPodAffinity",                 // https://github.com/kubernetes/kubernetes/pull/141744
+					"NodeSwap",                                    // https://github.com/kubernetes/kubernetes/pull/143587
+					"PodGroupPreemptionPolicy",                    // https://github.com/kubernetes/kubernetes/pull/143266
+					"PodSchedulingReadiness",                      // https://github.com/kubernetes/kubernetes/pull/141741
+					"RecoverVolumeExpansionFailure",               // https://github.com/kubernetes/kubernetes/pull/139079
+					"SeparateTaintEvictionController",             // https://github.com/kubernetes/kubernetes/pull/141789
+					"ServiceAccountTokenPodNodeInfo",              // https://github.com/kubernetes/kubernetes/pull/135338
+					"SupplementalGroupsPolicy",                    // https://github.com/kubernetes/kubernetes/pull/142093
+					"SystemdWatchdog",                             // https://github.com/kubernetes/kubernetes/pull/143337
+					"WinDSR",                                      // https://github.com/kubernetes/kubernetes/pull/142125
+					"WinOverlay",                                  // https://github.com/kubernetes/kubernetes/pull/142125
+					"WindowsHostNetwork",                          // https://github.com/kubernetes/kubernetes/pull/142018
 				},
 			},
 		},
