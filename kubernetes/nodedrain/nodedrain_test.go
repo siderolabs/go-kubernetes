@@ -32,8 +32,8 @@ const (
 
 func node(unschedulable bool) *corev1.Node {
 	return &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{Name: testNode},
-		Spec:       corev1.NodeSpec{Unschedulable: unschedulable},
+		Name: testNode,
+		Spec: corev1.NodeSpec{Unschedulable: unschedulable},
 	}
 }
 
@@ -330,9 +330,9 @@ func drainClientset(objects ...runtime.Object) *fake.Clientset {
 
 func workloadPod() *corev1.Pod {
 	return &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "workload"},
-		Spec:       corev1.PodSpec{NodeName: testNode},
-		Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+		Namespace: "default", Name: "workload",
+		Spec:   corev1.PodSpec{NodeName: testNode},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
 	}
 }
 
@@ -420,7 +420,7 @@ func TestDrain(t *testing.T) {
 
 func readyNode() *corev1.Node {
 	return &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{Name: testNode},
+		Name: testNode,
 		Status: corev1.NodeStatus{
 			Conditions: []corev1.NodeCondition{
 				{Type: corev1.NodeReady, Status: corev1.ConditionTrue},

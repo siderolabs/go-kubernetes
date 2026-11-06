@@ -47,10 +47,8 @@ func NewInventory(ctx context.Context, k8sClient *kubernetes.Clientset, namespac
 
 	if apierrors.IsNotFound(err) {
 		configmap = &v1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
+			Name:      name,
+			Namespace: namespace,
 		}
 
 		_, err = i.client.CoreV1().ConfigMaps(namespace).Create(ctx, configmap, metav1.CreateOptions{})
@@ -88,11 +86,9 @@ func (i *Inventory) Update(objectRefs object.ObjMetadataSet) {
 
 func (i *Inventory) Write(ctx context.Context) error {
 	configmap := &v1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      i.name,
-			Namespace: i.namespace,
-		},
-		Data: make(map[string]string, len(i.contents)),
+		Name:      i.name,
+		Namespace: i.namespace,
+		Data:      make(map[string]string, len(i.contents)),
 	}
 
 	for _, objMetadata := range i.contents {
@@ -128,9 +124,7 @@ func AssureInventoryNamespace(ctx context.Context, k8sClient *kubernetes.Clients
 	}
 
 	ns := &v1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: inventoryNamespace,
-		},
+		Name: inventoryNamespace,
 	}
 
 	_, err = k8sClient.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})

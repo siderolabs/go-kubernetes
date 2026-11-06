@@ -12,7 +12,6 @@ import (
 
 	"github.com/cosi-project/runtime/pkg/state"
 	"github.com/cosi-project/runtime/pkg/state/impl/inmem"
-	"github.com/cosi-project/runtime/pkg/state/impl/namespaced"
 	"github.com/siderolabs/talos/pkg/machinery/resources/k8s"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,7 +23,7 @@ func TestK8sComponentRemovedItemsNoError(t *testing.T) {
 	ctx, ctxCancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer ctxCancel()
 
-	resourceState := state.WrapCore(namespaced.NewState(inmem.Build))
+	resourceState := state.WrapCore(inmem.NewState())
 
 	for _, id := range []string{k8s.APIServerID, k8s.ControllerManagerID, k8s.SchedulerID} {
 		cfg := k8s.NewStaticPod(k8s.NamespaceName, id)
@@ -57,7 +56,7 @@ func TestK8sComponentRemovedItemsWithError(t *testing.T) {
 	ctx, ctxCancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer ctxCancel()
 
-	resourceState := state.WrapCore(namespaced.NewState(inmem.Build))
+	resourceState := state.WrapCore(inmem.NewState())
 
 	checkData := map[string]struct {
 		cliFlags []string
@@ -165,7 +164,7 @@ func TestK8sComponentRemovedItemsWithKubeletError(t *testing.T) {
 	ctx, ctxCancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer ctxCancel()
 
-	resourceState := state.WrapCore(namespaced.NewState(inmem.Build))
+	resourceState := state.WrapCore(inmem.NewState())
 
 	checkData := map[string]struct {
 		cliFlags []string
@@ -342,8 +341,8 @@ func TestK8sComponentRemovedItemsWithStateProvider(t *testing.T) {
 	// Create separate per-node states to prove the provider dispatches correctly.
 	// node-1 has a removed flag; node-2 does not.
 	nodeStates := map[string]state.State{
-		"node-1": state.WrapCore(namespaced.NewState(inmem.Build)),
-		"node-2": state.WrapCore(namespaced.NewState(inmem.Build)),
+		"node-1": state.WrapCore(inmem.NewState()),
+		"node-2": state.WrapCore(inmem.NewState()),
 	}
 
 	// node-1: kube-apiserver with a removed flag (service-account-api-audiences, removed in 1.24→1.25)

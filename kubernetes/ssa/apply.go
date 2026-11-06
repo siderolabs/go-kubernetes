@@ -320,17 +320,15 @@ func setDefaultApplyOps(ops *ApplyOptions) {
 
 func changeFromObject(obj *unstructured.Unstructured, diff string, action Action) Change {
 	return Change{
-		ChangeSetEntry: ChangeSetEntry{
-			ObjMetadata: object.ObjMetadata{
-				Namespace: obj.GetNamespace(),
-				Name:      obj.GetName(),
-				GroupKind: obj.GroupVersionKind().GroupKind(),
-			},
-			Subject:      utils.FmtUnstructured(obj),
-			GroupVersion: obj.GetAPIVersion(),
-			Action:       action,
+		ObjMetadata: object.ObjMetadata{
+			Namespace: obj.GetNamespace(),
+			Name:      obj.GetName(),
+			GroupKind: obj.GroupVersionKind().GroupKind(),
 		},
-		Diff: diff,
+		Subject:      utils.FmtUnstructured(obj),
+		GroupVersion: obj.GetAPIVersion(),
+		Action:       action,
+		Diff:         diff,
 	}
 }
 
